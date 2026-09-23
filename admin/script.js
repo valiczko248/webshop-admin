@@ -1,3 +1,8 @@
+  // ---- HTML-escapelés — külső (webshop/vevő) eredetű szövegekhez kötelező, mielőtt innerHTML-be kerülnek ----
+  function escapeHtml(str){
+    return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+
   // ---- sötét / világos téma ----
   (function initTheme(){
     let saved = null;
@@ -508,14 +513,20 @@
   productImageInput.addEventListener('change', () => {
     const files = Array.from(productImageInput.files || []);
     if (!files.length) return;
-    Promise.all(files.map(file => new Promise(resolve => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.readAsDataURL(file);
-    }))).then(results => {
-      productImages = results;
+    Promise.all(files.map(file => {
+      const formData = new FormData();
+      formData.append('type', 'product');
+      formData.append('file', file);
+      return fetch('/api/upload.php', { method: 'POST', body: formData })
+        .then(async res => {
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Ismeretlen hiba.');
+          return data.url;
+        });
+    })).then(urls => {
+      productImages = urls;
       renderGalleryPreview();
-    });
+    }).catch(err => pushNotification(`Nem sikerült feltölteni a képet: ${err.message}`, 'danger'));
   });
 
   productForm.addEventListener('submit', (e) => {
@@ -595,7 +606,6 @@
   const couponStatusSelect = document.getElementById('coupon-status');
   const couponNoteInput = document.getElementById('coupon-note');
   const couponExcludeList = document.getElementById('coupon-exclude-list');
-  let activeCouponCount = 3;
   let editingRow = null;
 
   function updateCouponDiscountUI(){
@@ -637,10 +647,64 @@
   const editIconSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
   const pillLabel = { success:'Aktív', danger:'Lejárt', neutral:'Inaktív' };
 
-  function isoFromHunDate(text){
-    const m = text.match(/(\d{4})\.(\d{2})\.(\d{2})/);
-    return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+  // ---- kuponok betöltése/mentése a backend API-n keresztül ----
+  function buildCouponRowInnerHtml(c){
+    const discount = formatDiscount(c.discountType, c.discountValue);
+    let until;
+    if (c.from && c.until) until = `${c.from.replaceAll('-', '.')} – ${c.until.replaceAll('-', '.')}`;
+    else if (c.from) until = `${c.from.replaceAll('-', '.')}-tól`;
+    else if (c.until) until = `${c.until.replaceAll('-', '.')}-ig`;
+    else until = 'nincs lejárat';
+    const usage = c.limit ? `${c.usedCount} / ${c.limit}` : `${c.usedCount} / —`;
+    const subHtml = [
+      c.excludedProducts.length ? `<div class="exclude-sub">Kivéve: ${c.excludedProducts.join(', ')}</div>` : '',
+      c.limitPerEmail ? `<div class="email-limit-sub">Max ${c.limitPerEmail}× / email</div>` : '',
+      c.note ? `<div class="coupon-note-sub" title="${c.note.replace(/"/g, '&quot;')}">${c.note}</div>` : ''
+    ].join('');
+    return `
+      <td class="mono"><span class="coupon-code-main">${c.code}</span>${subHtml}</td>
+      <td>${discount}</td>
+      <td class="mono">${until}</td>
+      <td class="num">${usage}</td>
+      <td><span class="pill pill--${c.status}">${pillLabel[c.status]}</span></td>
+      <td><button type="button" class="row-edit-btn" aria-label="Kupon szerkesztése">${editIconSvg}</button></td>
+    `;
   }
+  function applyCouponDataset(row, c){
+    row.dataset.id = c.id;
+    row.dataset.excluded = c.excludedProducts.join(',');
+    row.dataset.discountType = c.discountType;
+    row.dataset.discountValue = c.discountValue;
+    row.dataset.limit = c.limit || '';
+    row.dataset.usedCount = c.usedCount;
+    row.dataset.limitPerEmail = c.limitPerEmail || '';
+    row.dataset.note = c.note || '';
+    row.dataset.from = c.from || '';
+    row.dataset.until = c.until || '';
+    row.dataset.startNow = c.startNow ? 'true' : 'false';
+    row.dataset.status = c.status;
+  }
+  function renderCouponRow(c){
+    const row = document.createElement('tr');
+    applyCouponDataset(row, c);
+    row.innerHTML = buildCouponRowInnerHtml(c);
+    return row;
+  }
+  function refreshCouponsEyebrow(){
+    const count = couponsTbody.querySelectorAll('tr[data-status="success"]').length;
+    couponsEyebrow.textContent = `${count} aktív`;
+  }
+  function loadCoupons(){
+    fetch('/api/coupons.php')
+      .then(res => res.json())
+      .then(coupons => {
+        couponsTbody.innerHTML = '';
+        coupons.forEach(c => couponsTbody.appendChild(renderCouponRow(c)));
+        refreshCouponsEyebrow();
+      })
+      .catch(() => pushNotification('Nem sikerült betölteni a kuponokat a szerverről.', 'danger'));
+  }
+  loadCoupons();
 
   function openCouponModal(){
     couponModal.classList.add('active');
@@ -668,22 +732,18 @@
 
   function openForEdit(row){
     editingRow = row;
-    const cells = row.children;
-    couponCodeInput.value = cells[0].querySelector('.coupon-code-main').textContent.trim();
+    couponCodeInput.value = row.querySelector('.coupon-code-main').textContent.trim();
     couponDiscountTypeSelect.value = row.dataset.discountType || 'percent';
     updateCouponDiscountUI();
     couponDiscountValueInput.value = row.dataset.discountValue || '';
-    couponUntilInput.value = row.dataset.until || isoFromHunDate(cells[2].textContent.trim());
+    couponUntilInput.value = row.dataset.until || '';
     couponStartNowCheckbox.checked = row.dataset.startNow !== 'false';
     couponFromInput.value = row.dataset.from || '';
     updateCouponFromUI();
-    const usageParts = cells[3].textContent.split('/').map(s => s.trim());
-    couponLimitInput.value = (usageParts[1] && usageParts[1] !== '—') ? usageParts[1] : '';
+    couponLimitInput.value = row.dataset.limit || '';
     couponLimitPerEmailInput.value = row.dataset.limitPerEmail || '';
     couponNoteInput.value = row.dataset.note || '';
-    const pillEl = cells[4].querySelector('.pill');
-    const statusKey = ['success','danger','neutral'].find(k => pillEl.classList.contains('pill--' + k)) || 'success';
-    couponStatusSelect.value = statusKey;
+    couponStatusSelect.value = row.dataset.status || 'success';
     couponModalTitle.textContent = 'Kupon szerkesztése';
     couponSubmitBtn.textContent = 'Módosítások mentése';
     const excluded = (row.dataset.excluded || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -710,7 +770,6 @@
     const code = couponCodeInput.value.trim().toUpperCase();
     const discountType = couponDiscountTypeSelect.value;
     const discountValue = parseInt(couponDiscountValueInput.value, 10) || 0;
-    const discount = formatDiscount(discountType, discountValue);
     const untilRaw = couponUntilInput.value;
     const startNow = couponStartNowCheckbox.checked;
     const fromRaw = startNow ? '' : couponFromInput.value;
@@ -720,58 +779,40 @@
     const excludedNames = Array.from(couponExcludeList.querySelectorAll('input:checked')).map(cb => cb.value);
     const note = couponNoteInput.value.trim();
 
-    const untilText = untilRaw ? untilRaw.replaceAll('-', '.') + '-ig' : 'nincs lejárat';
-    let until;
-    if (fromRaw && untilRaw) until = `${fromRaw.replaceAll('-', '.')} – ${untilRaw.replaceAll('-', '.')}`;
-    else if (fromRaw) until = `${fromRaw.replaceAll('-', '.')}-tól`;
-    else until = untilText;
-    const usedSoFar = editingRow
-      ? (parseInt(editingRow.children[3].textContent.split('/')[0], 10) || 0)
-      : 0;
-    const usage = limit ? `${usedSoFar} / ${limit}` : `${usedSoFar} / —`;
-    const subHtml = [
-      excludedNames.length ? `<div class="exclude-sub">Kivéve: ${excludedNames.join(', ')}</div>` : '',
-      limitPerEmail ? `<div class="email-limit-sub">Max ${limitPerEmail}× / email</div>` : '',
-      note ? `<div class="coupon-note-sub" title="${note.replace(/"/g, '&quot;')}">${note}</div>` : ''
-    ].join('');
+    const payload = {
+      code, discountType, discountValue, startNow,
+      from: fromRaw || null,
+      until: untilRaw || null,
+      limit: limit ? parseInt(limit, 10) : null,
+      limitPerEmail: limitPerEmail ? parseInt(limitPerEmail, 10) : null,
+      status: statusKey,
+      note: note || null,
+      excludedProducts: excludedNames
+    };
 
-    const rowHtml = `
-      <td class="mono"><span class="coupon-code-main">${code}</span>${subHtml}</td>
-      <td>${discount}</td>
-      <td class="mono">${until}</td>
-      <td class="num">${usage}</td>
-      <td><span class="pill pill--${statusKey}">${pillLabel[statusKey]}</span></td>
-      <td><button type="button" class="row-edit-btn" aria-label="Kupon szerkesztése">${editIconSvg}</button></td>
-    `;
+    const request = editingRow
+      ? fetch(`/api/coupons.php?id=${editingRow.dataset.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+      : fetch('/api/coupons.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
 
-    if (editingRow){
-      editingRow.dataset.excluded = excludedNames.join(',');
-      editingRow.dataset.discountType = discountType;
-      editingRow.dataset.discountValue = discountValue;
-      editingRow.dataset.limitPerEmail = limitPerEmail;
-      editingRow.dataset.note = note;
-      editingRow.dataset.from = fromRaw;
-      editingRow.dataset.until = untilRaw;
-      editingRow.dataset.startNow = startNow ? 'true' : 'false';
-      editingRow.innerHTML = rowHtml;
-    } else {
-      const row = document.createElement('tr');
-      row.dataset.excluded = excludedNames.join(',');
-      row.dataset.discountType = discountType;
-      row.dataset.discountValue = discountValue;
-      row.dataset.limitPerEmail = limitPerEmail;
-      row.dataset.note = note;
-      row.dataset.from = fromRaw;
-      row.dataset.until = untilRaw;
-      row.dataset.startNow = startNow ? 'true' : 'false';
-      row.innerHTML = rowHtml;
-      couponsTbody.prepend(row);
-      activeCouponCount++;
-      couponsEyebrow.textContent = `${activeCouponCount} aktív`;
-    }
-
-    pushNotification(`Kupon mentve: <strong>${code}</strong> (${discount}, ${pillLabel[statusKey]})`, 'info');
-    closeCouponModal();
+    request.then(res => res.json()).then(saved => {
+      if (editingRow) {
+        applyCouponDataset(editingRow, saved);
+        editingRow.innerHTML = buildCouponRowInnerHtml(saved);
+      } else {
+        couponsTbody.prepend(renderCouponRow(saved));
+      }
+      refreshCouponsEyebrow();
+      pushNotification(`Kupon mentve: <strong>${saved.code}</strong> (${formatDiscount(saved.discountType, saved.discountValue)}, ${pillLabel[saved.status]})`, 'info');
+      closeCouponModal();
+    }).catch(() => pushNotification('Nem sikerült menteni a kupont a szerverre.', 'danger'));
   });
 
   // ---- vásárlói részletek + rendeléstörténet ----
@@ -787,35 +828,47 @@
     'Lemondva': 'danger'
   };
 
-  const customerData = {
-    'kovacs-anna': {
-      name: 'Kovács Anna',
-      contact: 'kovacs.anna@email.hu · +36 30 123 4567',
-      orders: [
-        { date: '2026.09.20.', order: '#0231', product: 'Alaptermék × 1', amount: '12 900 Ft', status: 'Fizetve', stripeRef: 'pi_3PtestAB12cKovacs' },
-        { date: '2026.08.02.', order: '#0198', product: 'Alaptermék × 1', amount: '9 800 Ft', status: 'Fizetve', stripeRef: 'pi_3PtestQR56sKovacs' },
-        { date: '2026.06.14.', order: '#0142', product: 'Alaptermék × 2', amount: '15 200 Ft', status: 'Fizetve', stripeRef: 'pi_3PtestST78uKovacs' }
-      ]
-    },
-    'nagy-bence': {
-      name: 'Nagy Bence',
-      contact: 'nagy.bence@email.hu · +36 20 987 6543',
-      orders: [
-        { date: '2026.09.19.', order: '#0230', product: 'Alaptermék × 1', amount: '9 400 Ft', status: 'Fizetve', stripeRef: 'pi_3PtestCD34eNagyB' }
-      ]
-    },
-    'szabo-petra': {
-      name: 'Szabó Petra',
-      contact: 'szabo.petra@email.hu · +36 70 555 1122',
-      orders: [
-        { date: '2026.09.19.', order: '#0229', product: 'Alaptermék × 2', amount: '21 800 Ft', status: 'Függőben' },
-        { date: '2026.08.10.', order: '#0201', product: 'Alaptermék × 1', amount: '12 900 Ft', status: 'Fizetve', stripeRef: 'pi_3PtestUV90wSzaboP' },
-        { date: '2026.07.22.', order: '#0176', product: 'Alaptermék × 1', amount: '9 400 Ft', status: 'Fizetve', stripeRef: 'pi_3PtestWX12ySzaboP' },
-        { date: '2026.06.30.', order: '#0150', product: 'Alaptermék × 1', amount: '6 200 Ft', status: 'Fizetve', stripeRef: 'pi_3PtestYZ34aSzaboP' },
-        { date: '2026.06.02.', order: '#0133', product: 'Alaptermék × 1', amount: '12 900 Ft', status: 'Fizetve', stripeRef: 'pi_3PtestBC56dSzaboP' }
-      ]
-    }
-  };
+  let customerData = {};
+  function formatFullDate(iso){
+    const parts = iso.split('-');
+    return `${parts[0]}.${parts[1]}.${parts[2]}.`;
+  }
+  function renderCustomerRow(c){
+    const row = document.createElement('tr');
+    row.className = 'row-clickable';
+    row.dataset.customer = c.key;
+    row.innerHTML = `
+      <td>${escapeHtml(c.name)}</td><td class="mono">${escapeHtml(c.email || '')}</td><td class="mono">${escapeHtml(c.phone || '')}</td>
+      <td class="num">${c.orderCount}</td><td class="mono">${c.lastPurchase ? formatOrderDate(c.lastPurchase) : '—'}</td>
+    `;
+    return row;
+  }
+  function loadCustomers(){
+    fetch('/api/customers.php')
+      .then(res => res.json())
+      .then(customers => {
+        customerData = {};
+        customers.forEach(c => {
+          customerData[c.key] = {
+            name: c.name,
+            contact: `${c.email || ''} · ${c.phone || ''}`,
+            orders: c.purchases.map(p => ({
+              date: formatFullDate(p.date),
+              order: p.order,
+              product: p.product,
+              amount: p.amount,
+              status: p.status,
+              stripeRef: p.stripeRef
+            }))
+          };
+        });
+        const customersTbody = document.getElementById('customers-tbody');
+        customersTbody.innerHTML = '';
+        customers.forEach(c => customersTbody.appendChild(renderCustomerRow(c)));
+      })
+      .catch(() => pushNotification('Nem sikerült betölteni a vásárlókat a szerverről.', 'danger'));
+  }
+  loadCustomers();
 
   function openCustomerModal(key){
     const data = customerData[key];
@@ -824,14 +877,14 @@
     customerAvatarEl.textContent = data.name.charAt(0);
     customerContactEl.textContent = data.contact;
     customerHistoryTbody.innerHTML = data.orders.map(o => `
-      <tr class="row-clickable" data-order-num="${o.order}" title="Kattints a rendelés megnyitásához">
-        <td class="mono">${o.date}</td>
-        <td class="mono order-link-btn">${o.order}</td>
-        <td>${o.product}</td>
-        <td class="num">${o.amount}</td>
+      <tr class="row-clickable" data-order-num="${escapeHtml(o.order)}" title="Kattints a rendelés megnyitásához">
+        <td class="mono">${escapeHtml(o.date)}</td>
+        <td class="mono order-link-btn">${escapeHtml(o.order)}</td>
+        <td>${escapeHtml(o.product)}</td>
+        <td class="num">${escapeHtml(o.amount)}</td>
         <td>
-          <span class="pill pill--${customerStatusPill[o.status] || 'neutral'}">${o.status}</span>
-          ${o.stripeRef ? `<a class="stripe-ref-link" style="margin-left:6px; font-size:11.5px" href="${stripeDashboardUrl(o.stripeRef, 'test')}" target="_blank" rel="noopener">Stripe →</a>` : ''}
+          <span class="pill pill--${customerStatusPill[o.status] || 'neutral'}">${escapeHtml(o.status)}</span>
+          ${o.stripeRef ? `<a class="stripe-ref-link" style="margin-left:6px; font-size:11.5px" href="${escapeHtml(stripeDashboardUrl(o.stripeRef, 'test'))}" target="_blank" rel="noopener">Stripe →</a>` : ''}
         </td>
       </tr>
     `).join('');
@@ -878,6 +931,44 @@
   const emailPillLabel = { success: 'Aktív', neutral: 'Inaktív' };
   let editingEmailRow = null;
 
+  function buildEmailRowInnerHtml(t){
+    return `
+      <td>${t.name}</td>
+      <td class="mono">${t.triggerLabel}</td>
+      <td><span class="pill pill--${t.status}">${emailPillLabel[t.status]}</span></td>
+      <td><button type="button" class="row-edit-btn" aria-label="Sablon szerkesztése">${editIconSvg}</button></td>
+    `;
+  }
+  function renderEmailRow(t){
+    const row = document.createElement('tr');
+    row.dataset.id = t.id;
+    row.dataset.subject = t.subject;
+    row.dataset.body = t.body;
+    row.innerHTML = buildEmailRowInnerHtml(t);
+    return row;
+  }
+  function loadEmailTemplates(){
+    fetch('/api/email-templates.php')
+      .then(res => res.json())
+      .then(templates => {
+        emailsTbody.innerHTML = '';
+        templates.forEach(t => emailsTbody.appendChild(renderEmailRow(t)));
+      })
+      .catch(() => pushNotification('Nem sikerült betölteni az email-sablonokat a szerverről.', 'danger'));
+  }
+  loadEmailTemplates();
+
+  function loadEmailSettings(){
+    fetch('/api/settings.php')
+      .then(res => res.json())
+      .then(settings => {
+        if (settings.email_sender_name) document.getElementById('email-sender-name').value = settings.email_sender_name;
+        if (settings.email_sender_address) document.getElementById('email-sender-address').value = settings.email_sender_address;
+      })
+      .catch(() => pushNotification('Nem sikerült betölteni az email-beállításokat a szerverről.', 'danger'));
+  }
+  loadEmailSettings();
+
   function openEmailModal(row){
     editingEmailRow = row;
     const pillEl = row.querySelector('.pill');
@@ -910,13 +1001,17 @@
     e.preventDefault();
     if (!editingEmailRow) return;
     const statusKey = emailActiveSelect.value;
-    editingEmailRow.dataset.subject = emailSubjectInput.value;
-    editingEmailRow.dataset.body = emailBodyInput.value;
-    editingEmailRow.querySelector('.pill').className = `pill pill--${statusKey}`;
-    editingEmailRow.querySelector('.pill').textContent = emailPillLabel[statusKey];
-    const templateName = editingEmailRow.children[0].textContent.trim();
-    pushNotification(`Email sablon frissítve: <strong>${templateName}</strong> (${emailPillLabel[statusKey]})`, 'info');
-    closeEmailModal();
+    fetch(`/api/email-templates.php?id=${editingEmailRow.dataset.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject: emailSubjectInput.value, body: emailBodyInput.value, status: statusKey })
+    }).then(res => res.json()).then(saved => {
+      editingEmailRow.dataset.subject = saved.subject;
+      editingEmailRow.dataset.body = saved.body;
+      editingEmailRow.innerHTML = buildEmailRowInnerHtml(saved);
+      pushNotification(`Email sablon frissítve: <strong>${saved.name}</strong> (${emailPillLabel[saved.status]})`, 'info');
+      closeEmailModal();
+    }).catch(() => pushNotification('Nem sikerült menteni a sablont a szerverre.', 'danger'));
   });
 
   // ---- Stripe teszt / éles mód ----
@@ -1006,11 +1101,26 @@
   });
 
   setStripeMode('test');
+  fetch('/api/settings.php')
+    .then(res => res.json())
+    .then(settings => {
+      if (settings.stripe_webhook_secret) {
+        stripeKeys[currentStripeMode].webhook = settings.stripe_webhook_secret;
+        stripeWebhookInput.value = settings.stripe_webhook_secret;
+      }
+      if (settings.storefront_url) document.getElementById('storefront-url').value = settings.storefront_url;
+    })
+    .catch(() => {});
 
   // ---- weboldal API kulcs: generálás + másolás ----
   const siteKeyInput = document.getElementById('settings-site-api-key');
   const siteConnectionPill = document.getElementById('site-connection-pill');
   const siteConnectionDetail = document.getElementById('site-connection-detail');
+
+  fetch('/api/site-key.php')
+    .then(res => res.json())
+    .then(data => { if (data.siteApiKey) siteKeyInput.value = data.siteApiKey; })
+    .catch(() => pushNotification('Nem sikerült betölteni a weboldal API kulcsot a szerverről.', 'danger'));
 
   function setAiSetupAvailable(available){
     document.getElementById('open-ai-setup-btn').disabled = !available;
@@ -1031,12 +1141,16 @@
   }
 
   document.getElementById('regenerate-site-key-btn').addEventListener('click', () => {
-    const bytes = Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-    siteKeyInput.value = `whs_live_${bytes}`;
-    siteKeyInput.focus();
-    siteKeyInput.select();
-    resetSiteConnectionStatus('Új kulcsot generáltál — a weboldal kódjában is frissítened kell, utána teszteld újra a kapcsolatot.');
-    pushNotification('Weboldal API kulcs újragenerálva — a régi kulcs innentől érvénytelen', 'warn');
+    fetch('/api/site-key.php', { method: 'POST' })
+      .then(res => res.json())
+      .then(data => {
+        siteKeyInput.value = data.siteApiKey;
+        siteKeyInput.focus();
+        siteKeyInput.select();
+        resetSiteConnectionStatus('Új kulcsot generáltál — a weboldal kódjában is frissítened kell, utána teszteld újra a kapcsolatot.');
+        pushNotification('Weboldal API kulcs újragenerálva — a régi kulcs innentől érvénytelen', 'warn');
+      })
+      .catch(() => pushNotification('Nem sikerült új kulcsot generálni a szerveren.', 'danger'));
   });
 
   document.getElementById('test-site-connection-btn').addEventListener('click', () => {
@@ -1072,12 +1186,32 @@
     }
   });
 
-  // ---- Adat-mezőleképezés a webshoppal ----
+  // ---- Adat-mezőleképezés a webshoppal — valódi mentés, a webshop.php webhook ezt tényleg használja ----
+  fetch('/api/settings.php')
+    .then(res => res.json())
+    .then(settings => {
+      if (!settings.field_mapping) return;
+      let mapping = {};
+      try { mapping = JSON.parse(settings.field_mapping) || {}; } catch (e) { return; }
+      document.querySelectorAll('#field-mapping-tbody input').forEach(input => {
+        if (Object.prototype.hasOwnProperty.call(mapping, input.dataset.field)) input.value = mapping[input.dataset.field];
+      });
+    })
+    .catch(() => {});
+
   document.getElementById('field-mapping-save-btn').addEventListener('click', () => {
-    const filled = Array.from(document.querySelectorAll('#field-mapping-tbody input')).filter(i => i.value.trim()).length;
-    const total = document.querySelectorAll('#field-mapping-tbody input').length;
-    flashSaveStatus(document.getElementById('field-mapping-save-status'));
-    pushNotification(`Adat-mezőleképezés mentve (${filled}/${total} változóhoz van megadva webshop-mezőnév)`, 'success');
+    const inputs = Array.from(document.querySelectorAll('#field-mapping-tbody input'));
+    const mapping = {};
+    inputs.forEach(i => { mapping[i.dataset.field] = i.value.trim(); });
+    const filled = inputs.filter(i => i.value.trim()).length;
+    fetch('/api/settings.php', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field_mapping: JSON.stringify(mapping) })
+    }).then(() => {
+      flashSaveStatus(document.getElementById('field-mapping-save-status'));
+      pushNotification(`Adat-mezőleképezés mentve (${filled}/${inputs.length} változóhoz van megadva webshop-mezőnév) — a webhook mostantól ezt használja`, 'success');
+    }).catch(() => pushNotification('Nem sikerült menteni a mezőleképezést a szerverre.', 'danger'));
   });
 
   // ---- AI automatikus alapadat-felismerés (szimuláció) ----
@@ -1292,23 +1426,89 @@
     return `https://dashboard.stripe.com/${m === 'test' ? 'test/' : ''}payments/${ref}`;
   }
   const orderModal = document.getElementById('order-modal');
-  const orderDetails = {
-    '0231': { items: [{ name: 'Alaptermék', qty: 1, unit: 12900 }], address: 'Kovács Anna, 1051 Budapest, Váci utca 10.', ref: 'pi_3PtestAB12cKovacs' },
-    '0230': { items: [{ name: 'Alaptermék', qty: 1, unit: 9400 }], address: 'Nagy Bence, 4024 Debrecen, Piac utca 5.', ref: 'pi_3PtestCD34eNagyB' },
-    '0229': { items: [{ name: 'Alaptermék', qty: 2, unit: 10900 }], address: 'Szabó Petra, 6720 Szeged, Kárász utca 3.', ref: '— (fizetésre vár)' },
-    '0228': { items: [{ name: 'Alaptermék', qty: 1, unit: 12900 }], address: 'Tóth Dávid, 9021 Győr, Baross Gábor út 15.', ref: '12 900 Ft — futár beszedte, kézbesítéskor (Kvikk visszaigazolva)' },
-    '0227': { items: [{ name: 'Alaptermék', qty: 1, unit: 6200 }], address: 'Horváth Eszter, 7621 Pécs, Rákóczi út 8.', ref: '— (lemondva)' },
-    '0226': { items: [{ name: 'Alaptermék', qty: 1, unit: 8900 }], address: 'Kiss Gábor, 3300 Eger, Dobó tér 2.', ref: '8 900 Ft — a futár szedi be kézbesítéskor' },
-    '0212': { items: [{ name: 'Alaptermék', qty: 1, unit: 9800 }], address: 'Teszt Judit, 2000 Szentendre, Fő tér 1.', ref: 'pi_3PtestEF11jTesztJ' },
-    '0205': { items: [{ name: 'Alaptermék', qty: 1, unit: 12900 }], address: 'Varga Zsolt, 8000 Székesfehérvár, Városház tér 3.', ref: 'pi_3PtestGH22kVargaZs' },
-    '0193': { items: [{ name: 'Alaptermék', qty: 1, unit: 6200 }], address: 'Fekete Márk, 7100 Szekszárd, Béla király tér 6.', ref: '— (visszaküldés úton, a visszatérítés még nem esedékes)' }
-  };
+  let orderDetails = {};
   const methodPillHtml = {
     card: { cls: 'pill pill--neutral', text: 'Kártya — Stripe' },
     cod: { cls: 'pill pill--neutral', text: 'Utánvét — Kvikk' }
   };
   let currentInvoiceFileName = '';
-  let currentInvoiceFileUrl = '';
+  let currentInvoiceStoredName = '';
+
+  // ---- rendelések betöltése a backend API-ról ----
+  function pillWithSyncHtml(label, cls, syncNote){
+    if (!label) return '';
+    const sync = syncNote ? `
+      <span class="sync-tag" title="${syncNote}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 0 1 14.5-4.5M20 12a8 8 0 0 1-14.5 4.5"/><path d="M18 3v5h-5M6 21v-5h5"/></svg>
+        Kvikk
+      </span>` : '';
+    return `<span class="${cls}">${label}</span>${sync}`;
+  }
+  function formatOrderDate(iso){
+    const parts = iso.split('-');
+    return `${parts[1]}.${parts[2]}.`;
+  }
+  function buildOrderRowInnerHtml(o){
+    const isCancelled = o.paymentStatusLabel === 'Lemondva';
+    const invoiceHtml = isCancelled
+      ? '<span class="pill pill--neutral order-invoice-pill">—</span>'
+      : (o.invoiced
+          ? '<span class="pill pill--success order-invoice-pill">Kiállítva</span>'
+          : '<span class="pill pill--warn order-invoice-pill">Nincs kiállítva</span>');
+    return `
+      <td class="mono">#${escapeHtml(o.orderNumber)}</td><td>${escapeHtml(o.customerName)}</td><td class="num">${o.amount.toLocaleString('hu-HU')} Ft</td>
+      <td>${pillWithSyncHtml(o.paymentStatusLabel, o.paymentStatusClass, o.paymentSyncNote)}</td>
+      <td>${pillWithSyncHtml(o.shippingStatusLabel, o.shippingStatusClass, o.shippingSyncNote)}</td>
+      <td>${invoiceHtml}</td>
+      <td class="mono">${formatOrderDate(o.orderDate)}</td>
+    `;
+  }
+  function renderOrderRow(o){
+    const row = document.createElement('tr');
+    row.className = 'row-clickable';
+    row.dataset.order = o.orderNumber;
+    row.dataset.paymentMethod = o.paymentMethod;
+    row.dataset.invoiced = o.invoiced ? 'true' : '';
+    row.dataset.invoiceFile = o.invoiceFile || '';
+    row.dataset.invoiceStoredName = o.invoiceStoredName || '';
+    row.dataset.courier = o.courier || '';
+    row.dataset.time = o.orderTime || '';
+    row.innerHTML = buildOrderRowInnerHtml(o);
+    return row;
+  }
+  function loadOrders(){
+    fetch('/api/orders.php')
+      .then(res => res.json())
+      .then(orders => {
+        orderDetails = {};
+        orders.forEach(o => {
+          orderDetails[o.orderNumber] = {
+            items: o.items, address: o.address, ref: o.stripeRef, couponCode: o.couponCode,
+            kvikkShipmentStatus: o.kvikkShipmentStatus, kvikkTrackingNumber: o.kvikkTrackingNumber,
+            kvikkTrackingLink: o.kvikkTrackingLink, kvikkLabelStoredName: o.kvikkLabelStoredName,
+            kvikkShipmentError: o.kvikkShipmentError,
+          };
+        });
+        const ordersTbody = document.getElementById('orders-tbody');
+        ordersTbody.innerHTML = '';
+        orders.filter(o => o.isListed).forEach(o => ordersTbody.appendChild(renderOrderRow(o)));
+        renderKvikkShipmentErrors(orders);
+      })
+      .catch(() => pushNotification('Nem sikerült betölteni a rendeléseket a szerverről.', 'danger'));
+  }
+  loadOrders();
+
+  function renderKvikkShipmentErrors(orders){
+    const listEl = document.getElementById('kvikk-shipment-errors-list');
+    if (!listEl) return;
+    const failed = orders.filter(o => o.kvikkShipmentError);
+    listEl.innerHTML = failed.length
+      ? failed.map(o => `
+          <p class="empty-note" style="margin-bottom:8px; padding:10px 12px; border:1px solid var(--danger-text); background:var(--danger-bg); border-radius:8px; color:var(--danger-text)">
+            <strong>#${escapeHtml(o.orderNumber)}</strong> (${escapeHtml(o.customerName)}): ${escapeHtml(o.kvikkShipmentError)}
+          </p>`).join('')
+      : '<p class="empty-note">Nincs hibás automata csomag-létrehozás.</p>';
+  }
 
   function buildSyntheticOrderRow(orderNum){
     const returnRow = document.querySelector(`#returns-tbody tr[data-order="${orderNum}"]`);
@@ -1893,7 +2093,7 @@
 
     document.getElementById('order-modal-items').innerHTML = detail.items.map(it => `
       <tr>
-        <td>${it.name}</td>
+        <td>${escapeHtml(it.name)}</td>
         <td class="num">${it.qty}</td>
         <td class="num">${it.unit.toLocaleString('hu-HU')} Ft</td>
         <td class="num">${(it.qty * it.unit).toLocaleString('hu-HU')} Ft</td>
@@ -1904,40 +2104,85 @@
     const isRealStripeTxn = method === 'card' && /^pi_/.test(detail.ref);
     const stripeRefEl = document.getElementById('order-modal-stripe');
     stripeRefEl.innerHTML = isRealStripeTxn
-      ? `<a class="stripe-ref-link" href="${stripeDashboardUrl(detail.ref)}" target="_blank" rel="noopener">${detail.ref} →</a>`
-      : detail.ref;
+      ? `<a class="stripe-ref-link" href="${stripeDashboardUrl(detail.ref)}" target="_blank" rel="noopener">${escapeHtml(detail.ref)} →</a>`
+      : escapeHtml(detail.ref);
 
     const invoiceCheckbox = document.getElementById('order-modal-invoice');
     const invoiceFileInput = document.getElementById('order-modal-invoice-file');
     const invoiceFileNameEl = document.getElementById('order-modal-invoice-filename');
     invoiceCheckbox.checked = row.dataset.invoiced === 'true';
     currentInvoiceFileName = row.dataset.invoiceFile || '';
-    currentInvoiceFileUrl = row.dataset.invoiceFileUrl || '';
+    currentInvoiceStoredName = row.dataset.invoiceStoredName || '';
     invoiceFileInput.value = '';
     invoiceFileNameEl.innerHTML = currentInvoiceFileName
-      ? `Csatolva: ${currentInvoiceFileName}${currentInvoiceFileUrl ? ` · <a href="${currentInvoiceFileUrl}" target="_blank" rel="noopener">Megtekintés →</a>` : ''}`
+      ? `Csatolva: ${escapeHtml(currentInvoiceFileName)}${currentInvoiceStoredName ? ` · <a href="/api/invoice-download.php?order=${encodeURIComponent(orderNum)}" target="_blank" rel="noopener">Megtekintés →</a>` : ''}`
       : '';
     document.getElementById('order-modal-invoice-save-status').classList.remove('show');
 
     invoiceFileInput.onchange = () => {
       const file = invoiceFileInput.files[0];
-      if (file) {
-        currentInvoiceFileName = file.name;
-        if (currentInvoiceFileUrl) URL.revokeObjectURL(currentInvoiceFileUrl);
-        currentInvoiceFileUrl = URL.createObjectURL(file);
-        invoiceFileNameEl.innerHTML = `Csatolva: ${currentInvoiceFileName} · <a href="${currentInvoiceFileUrl}" target="_blank" rel="noopener">Megtekintés →</a>`;
-      }
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('type', 'invoice');
+      formData.append('file', file);
+      invoiceFileNameEl.textContent = 'Feltöltés…';
+      fetch('/api/upload.php', { method: 'POST', body: formData })
+        .then(async res => {
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Ismeretlen hiba.');
+          return data;
+        })
+        .then(data => {
+          currentInvoiceFileName = data.originalName;
+          currentInvoiceStoredName = data.storedName;
+          invoiceFileNameEl.innerHTML = `Csatolva: ${escapeHtml(currentInvoiceFileName)} · <a href="/api/invoice-download.php?order=${encodeURIComponent(orderNum)}" target="_blank" rel="noopener">Megtekintés →</a>`;
+        })
+        .catch(err => {
+          invoiceFileNameEl.textContent = '';
+          pushNotification(`Nem sikerült feltölteni a számlát: ${err.message}`, 'danger');
+        });
     };
 
     document.getElementById('order-modal-invoice-save-btn').onclick = () => {
       row.dataset.invoiced = invoiceCheckbox.checked ? 'true' : '';
       row.dataset.invoiceFile = currentInvoiceFileName;
-      row.dataset.invoiceFileUrl = currentInvoiceFileUrl;
+      row.dataset.invoiceStoredName = currentInvoiceStoredName;
       refreshInvoiceTableCell(row);
+      fetch(`/api/orders.php?number=${orderNum}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiced: invoiceCheckbox.checked, invoiceFile: currentInvoiceFileName, invoiceStoredName: currentInvoiceStoredName })
+      });
       flashSaveStatus(document.getElementById('order-modal-invoice-save-status'));
       const fileNote = currentInvoiceFileName ? `, csatolva: ${currentInvoiceFileName}` : '';
       pushNotification(`Rendelés #${orderNum}: számla ${invoiceCheckbox.checked ? 'kiállítva' : 'jelölése törölve'}${fileNote}`, 'success');
     };
+
+    const couponWrap = document.getElementById('order-modal-coupon-wrap');
+    if (detail.couponCode) {
+      couponWrap.style.display = '';
+      document.getElementById('order-modal-coupon').textContent = detail.couponCode;
+    } else {
+      couponWrap.style.display = 'none';
+    }
+
+    const kvikkAutoWrap = document.getElementById('order-modal-kvikk-auto-wrap');
+    const kvikkAutoBox = document.getElementById('order-modal-kvikk-auto');
+    if (detail.kvikkShipmentStatus === 'created') {
+      kvikkAutoWrap.style.display = '';
+      const labelLink = detail.kvikkLabelStoredName
+        ? ` · <a href="/api/kvikk-label-download.php?order=${encodeURIComponent(orderNum)}" target="_blank" rel="noopener">Címke (PDF) →</a>`
+        : '';
+      const mgmtLink = detail.kvikkTrackingLink
+        ? ` · <a href="${escapeHtml(detail.kvikkTrackingLink)}" target="_blank" rel="noopener">Kvikk kezelőfelület →</a>`
+        : '';
+      kvikkAutoBox.innerHTML = `Automatikusan létrehozva — nyomkövetési szám: <strong>${escapeHtml(detail.kvikkTrackingNumber || '—')}</strong>${labelLink}${mgmtLink}`;
+    } else if (detail.kvikkShipmentError) {
+      kvikkAutoWrap.style.display = '';
+      kvikkAutoBox.innerHTML = `<span style="color:var(--danger-text)">Sikertelen automata csomag-létrehozás: ${escapeHtml(detail.kvikkShipmentError)}</span>`;
+    } else {
+      kvikkAutoWrap.style.display = 'none';
+    }
 
     const stripeSlot = document.getElementById('order-modal-stripe-refund-slot');
     if (isRealStripeTxn) {
@@ -1978,22 +2223,47 @@
 
   function getLegalDocName(row){ return row.querySelector('.prod-name').textContent.trim(); }
 
-  function legalDocRowHtml(name, statusKey, effectiveIso, url, archived){
-    const effectiveHun = effectiveIso ? effectiveIso.replaceAll('-', '.') + '.' : '—';
-    const today = new Date().toISOString().slice(0,10).replaceAll('-', '.') + '.';
+  function buildLegalDocRowInnerHtml(d){
+    const effectiveHun = d.effectiveDate ? d.effectiveDate.replaceAll('-', '.') + '.' : '—';
+    const savedHun = d.updatedAt ? d.updatedAt.slice(0, 10).replaceAll('-', '.') + '.' : '—';
     return `
-      <td><div class="prod-name">${name}</div>${url ? `<a class="stripe-ref-link" style="font-size:11.5px" href="${url}" target="_blank" rel="noopener">Megtekintés az oldalon →</a>` : ''}</td>
+      <td><div class="prod-name">${d.name}</div>${d.url ? `<a class="stripe-ref-link" style="font-size:11.5px" href="${d.url}" target="_blank" rel="noopener">Megtekintés az oldalon →</a>` : ''}</td>
       <td class="mono">${effectiveHun}</td>
-      <td class="mono">${today}</td>
-      <td><span class="pill pill--${statusKey}">${legalPillLabel[statusKey]}</span></td>
+      <td class="mono">${savedHun}</td>
+      <td><span class="pill pill--${d.status}">${legalPillLabel[d.status]}</span></td>
       <td>
         <div class="row-actions">
           <button type="button" class="row-edit-btn" aria-label="Szerkesztés">${editIconSvgProduct}</button>
-          <button type="button" class="row-edit-btn row-archive-btn" aria-label="${archived ? 'Visszaállítás' : 'Archiválás'}">${archived ? restoreIconSvg : archiveIconSvg}</button>
+          <button type="button" class="row-edit-btn row-archive-btn" aria-label="${d.archived ? 'Visszaállítás' : 'Archiválás'}">${d.archived ? restoreIconSvg : archiveIconSvg}</button>
         </div>
       </td>
     `;
   }
+  function applyLegalDocDataset(row, d){
+    row.dataset.id = d.id;
+    row.dataset.content = d.content || '';
+    row.dataset.effective = d.effectiveDate || '';
+    row.dataset.url = d.url || '';
+    row.dataset.archived = d.archived ? 'true' : 'false';
+    row.classList.toggle('row-archived', !!d.archived);
+  }
+  function renderLegalDocRow(d){
+    const row = document.createElement('tr');
+    applyLegalDocDataset(row, d);
+    row.innerHTML = buildLegalDocRowInnerHtml(d);
+    return row;
+  }
+  function loadLegalDocs(){
+    fetch('/api/legal-docs.php')
+      .then(res => res.json())
+      .then(docs => {
+        legalDocsTbody.innerHTML = '';
+        docs.forEach(d => legalDocsTbody.appendChild(renderLegalDocRow(d)));
+        applyLegalDocArchivedFilter();
+      })
+      .catch(() => pushNotification('Nem sikerült betölteni a jogi dokumentumokat a szerverről.', 'danger'));
+  }
+  loadLegalDocs();
 
   function openLegalDocModal(row){
     editingLegalRow = row;
@@ -2034,6 +2304,11 @@
       archiveBtn.setAttribute('aria-label', wasArchived ? 'Archiválás' : 'Visszaállítás');
       applyLegalDocArchivedFilter();
       pushNotification(`<strong>${getLegalDocName(row)}</strong> ${wasArchived ? 'visszaállítva' : 'archiválva — a shopban is eltűnik, amint a backend ezt is figyelembe veszi'}`, 'info');
+      fetch(`/api/legal-docs.php?id=${row.dataset.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: !wasArchived })
+      });
     }
   });
   document.getElementById('legal-doc-modal-close').addEventListener('click', closeLegalDocModal);
@@ -2061,25 +2336,60 @@
     const url = legalDocUrlInput.value.trim();
     const content = legalDocContentInput.value;
 
-    if (editingLegalRow){
-      editingLegalRow.dataset.content = content;
-      editingLegalRow.dataset.effective = effective;
-      editingLegalRow.dataset.url = url;
-      editingLegalRow.innerHTML = legalDocRowHtml(name, statusKey, effective, url, editingLegalRow.dataset.archived === 'true');
-    } else {
-      const row = document.createElement('tr');
-      row.dataset.content = content;
-      row.dataset.effective = effective;
-      row.dataset.url = url;
-      row.dataset.archived = 'false';
-      row.innerHTML = legalDocRowHtml(name, statusKey, effective, url, false);
-      legalDocsTbody.appendChild(row);
-    }
-    pushNotification(`Jogi dokumentum mentve: <strong>${name}</strong> (${legalPillLabel[statusKey]})${statusKey === 'success' ? ' — azonnal élesben' : ''}`, 'info');
-    closeLegalDocModal();
+    const payload = { status: statusKey, effectiveDate: effective || null, url: url || null, content: content || null };
+    const request = editingLegalRow
+      ? fetch(`/api/legal-docs.php?id=${editingLegalRow.dataset.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+      : fetch('/api/legal-docs.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, name })
+        });
+
+    request.then(res => res.json()).then(saved => {
+      if (editingLegalRow) {
+        applyLegalDocDataset(editingLegalRow, saved);
+        editingLegalRow.innerHTML = buildLegalDocRowInnerHtml(saved);
+      } else {
+        legalDocsTbody.appendChild(renderLegalDocRow(saved));
+      }
+      pushNotification(`Jogi dokumentum mentve: <strong>${saved.name}</strong> (${legalPillLabel[saved.status]})${saved.status === 'success' ? ' — azonnal élesben' : ''}`, 'info');
+      closeLegalDocModal();
+    }).catch(() => pushNotification('Nem sikerült menteni a dokumentumot a szerverre.', 'danger'));
   });
 
   // ---- GDPR-kérelmek ----
+  const gdprStatusLabel = { warn: 'Függőben', success: 'Teljesítve' };
+  function buildGdprRowInnerHtml(r){
+    return `
+      <td class="mono">${r.email}</td>
+      <td>${r.requestType}</td>
+      <td class="mono">${r.receivedDate.replaceAll('-', '.')}.</td>
+      <td><span class="pill pill--${r.status}">${gdprStatusLabel[r.status]}</span></td>
+      <td><button type="button" class="btn btn--small gdpr-complete-btn" ${r.status === 'success' ? 'disabled' : ''}>Teljesítve</button></td>
+    `;
+  }
+  function renderGdprRow(r){
+    const row = document.createElement('tr');
+    row.dataset.id = r.id;
+    row.innerHTML = buildGdprRowInnerHtml(r);
+    return row;
+  }
+  function loadGdprRequests(){
+    fetch('/api/gdpr-requests.php')
+      .then(res => res.json())
+      .then(requests => {
+        const tbody = document.getElementById('gdpr-requests-tbody');
+        tbody.innerHTML = '';
+        requests.forEach(r => tbody.appendChild(renderGdprRow(r)));
+      })
+      .catch(() => pushNotification('Nem sikerült betölteni a GDPR-kérelmeket a szerverről.', 'danger'));
+  }
+  loadGdprRequests();
+
   document.getElementById('gdpr-requests-tbody').addEventListener('click', (e) => {
     const btn = e.target.closest('.gdpr-complete-btn');
     if (!btn || btn.disabled) return;
@@ -2090,6 +2400,11 @@
     btn.disabled = true;
     const email = row.children[0].textContent.trim();
     pushNotification(`GDPR-kérelem teljesítve: <strong>${email}</strong> — "GDPR-kérelem teljesítve" email kiküldve`, 'success');
+    fetch(`/api/gdpr-requests.php?id=${row.dataset.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'success' })
+    });
   });
 
   const gdprRequestModal = document.getElementById('gdpr-request-modal');
@@ -2112,18 +2427,15 @@
     const email = document.getElementById('gdpr-request-email').value.trim();
     const type = document.getElementById('gdpr-request-type').value;
     const dateIso = document.getElementById('gdpr-request-date').value;
-    const dateHun = dateIso ? dateIso.replaceAll('-', '.') + '.' : '—';
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td class="mono">${email}</td>
-      <td>${type}</td>
-      <td class="mono">${dateHun}</td>
-      <td><span class="pill pill--warn">Függőben</span></td>
-      <td><button type="button" class="btn btn--small gdpr-complete-btn">Teljesítve</button></td>
-    `;
-    document.getElementById('gdpr-requests-tbody').prepend(row);
-    pushNotification(`Új GDPR-kérelem rögzítve: <strong>${email}</strong> (${type})`, 'warn');
-    closeGdprRequestModal();
+    fetch('/api/gdpr-requests.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, requestType: type, receivedDate: dateIso })
+    }).then(res => res.json()).then(saved => {
+      document.getElementById('gdpr-requests-tbody').prepend(renderGdprRow(saved));
+      pushNotification(`Új GDPR-kérelem rögzítve: <strong>${saved.email}</strong> (${saved.requestType})`, 'warn');
+      closeGdprRequestModal();
+    }).catch(() => pushNotification('Nem sikerült rögzíteni a kérelmet a szerveren.', 'danger'));
   });
 
   // ---- analitika: élő állapotjelzők ----
@@ -2207,6 +2519,99 @@
     if (e.key === 'Escape') notifDropdown.classList.remove('active');
   });
 
+  // ---- fiók-menü (kijelentkezés) ----
+  const accountMenuBtn = document.getElementById('account-menu-btn');
+  const accountMenuDropdown = document.getElementById('account-menu-dropdown');
+  accountMenuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    accountMenuDropdown.classList.toggle('active');
+  });
+  document.addEventListener('click', (e) => {
+    if (accountMenuDropdown.classList.contains('active') && !accountMenuDropdown.contains(e.target) && e.target !== accountMenuBtn) {
+      accountMenuDropdown.classList.remove('active');
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') accountMenuDropdown.classList.remove('active');
+  });
+
+  // ---- adminisztrátorok (Beállítások) ----
+  const adminsTbody = document.getElementById('admins-tbody');
+  function buildAdminRowInnerHtml(a){
+    const isSelf = a.id === CURRENT_ADMIN_ID;
+    const created = a.createdAt ? a.createdAt.slice(0, 10).replaceAll('-', '.') + '.' : '—';
+    const lastLogin = a.lastLoginAt ? a.lastLoginAt.slice(0, 10).replaceAll('-', '.') + '.' : 'Még nem lépett be';
+    return `
+      <td class="mono">${a.email}${isSelf ? ' <span class="pill pill--neutral" style="margin-left:6px">Te</span>' : ''}</td>
+      <td class="mono">${created}</td>
+      <td class="mono">${lastLogin}</td>
+      <td>${isSelf ? '' : `<button type="button" class="row-edit-btn row-delete-btn" aria-label="Admin törlése">${deleteIconSvg}</button>`}</td>
+    `;
+  }
+  function renderAdminRow(a){
+    const row = document.createElement('tr');
+    row.dataset.id = a.id;
+    row.innerHTML = buildAdminRowInnerHtml(a);
+    return row;
+  }
+  function loadAdmins(){
+    fetch('/api/admins.php')
+      .then(res => res.json())
+      .then(admins => {
+        adminsTbody.innerHTML = '';
+        admins.forEach(a => adminsTbody.appendChild(renderAdminRow(a)));
+      })
+      .catch(() => pushNotification('Nem sikerült betölteni az adminisztrátorokat a szerverről.', 'danger'));
+  }
+  loadAdmins();
+
+  const adminUserModal = document.getElementById('admin-user-modal');
+  const adminUserForm = document.getElementById('admin-user-form');
+  function openAdminUserModal(){
+    adminUserForm.reset();
+    adminUserModal.classList.add('active');
+    document.getElementById('admin-user-email').focus();
+  }
+  function closeAdminUserModal(){ adminUserModal.classList.remove('active'); }
+  document.getElementById('new-admin-btn').addEventListener('click', openAdminUserModal);
+  document.getElementById('admin-user-modal-close').addEventListener('click', closeAdminUserModal);
+  document.getElementById('admin-user-cancel').addEventListener('click', closeAdminUserModal);
+  adminUserModal.addEventListener('click', (e) => { if (e.target === adminUserModal) closeAdminUserModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && adminUserModal.classList.contains('active')) closeAdminUserModal(); });
+
+  adminUserForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const email = document.getElementById('admin-user-email').value.trim();
+    const password = document.getElementById('admin-user-password').value;
+    fetch('/api/admins.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    }).then(async res => {
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Ismeretlen hiba.');
+      return data;
+    }).then(saved => {
+      adminsTbody.appendChild(renderAdminRow(saved));
+      pushNotification(`Új admin hozzáadva: <strong>${saved.email}</strong>`, 'success');
+      closeAdminUserModal();
+    }).catch(err => pushNotification(`Nem sikerült hozzáadni az admint: ${err.message}`, 'danger'));
+  });
+
+  adminsTbody.addEventListener('click', (e) => {
+    const btn = e.target.closest('.row-delete-btn');
+    if (!btn) return;
+    const row = btn.closest('tr');
+    const email = row.children[0].textContent.trim();
+    if (!confirm(`Biztosan törlöd "${email}" admin-hozzáférését? Ez nem vonható vissza.`)) return;
+    fetch(`/api/admins.php?id=${row.dataset.id}`, { method: 'DELETE' }).then(async res => {
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Ismeretlen hiba.');
+      row.remove();
+      pushNotification(`Admin-hozzáférés törölve: <strong>${email}</strong>`, 'warn');
+    }).catch(err => pushNotification(`Nem sikerült törölni: ${err.message}`, 'danger'));
+  });
+
   // ---- oldal-szintű beállítások mentése (Beállítások / Fizetés / Emailek / Analitika) ----
   function flashSaveStatus(el){
     el.textContent = 'Mentve ✓';
@@ -2224,13 +2629,31 @@
 
   document.getElementById('stripe-save-btn').addEventListener('click', () => {
     saveStripeFieldsToStore(currentStripeMode);
-    flashSaveStatus(document.getElementById('stripe-save-status'));
-    pushNotification(`Stripe API-kulcsok mentve (${currentStripeMode === 'test' ? 'Teszt' : 'Éles'})`, 'success');
+    // A publishable/secret key még nincs a szerveren felhasználva (nincs kimenő Stripe API-hívás
+    // ebben a rendszerben), csak a webhook-titkot mentjük ténylegesen — ez kell a bejövő
+    // Stripe-webhook aláírás-ellenőrzéséhez (api/webhooks/stripe.php).
+    fetch('/api/settings.php', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stripe_webhook_secret: stripeWebhookInput.value, storefront_url: document.getElementById('storefront-url').value })
+    }).then(() => {
+      flashSaveStatus(document.getElementById('stripe-save-status'));
+      pushNotification(`Stripe API-kulcsok mentve (${currentStripeMode === 'test' ? 'Teszt' : 'Éles'})`, 'success');
+    }).catch(() => pushNotification('Nem sikerült elmenteni a Stripe webhook-titkot a szerverre.', 'danger'));
   });
 
   document.getElementById('email-settings-save-btn').addEventListener('click', () => {
-    flashSaveStatus(document.getElementById('email-settings-save-status'));
-    pushNotification('Email küldő beállítások mentve (automatikus — szerver PHP mail())', 'success');
+    fetch('/api/settings.php', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email_sender_name: document.getElementById('email-sender-name').value,
+        email_sender_address: document.getElementById('email-sender-address').value
+      })
+    }).then(() => {
+      flashSaveStatus(document.getElementById('email-settings-save-status'));
+      pushNotification('Email küldő beállítások mentve (automatikus — szerver PHP mail())', 'success');
+    }).catch(() => pushNotification('Nem sikerült menteni az email-beállításokat a szerverre.', 'danger'));
   });
 
   document.getElementById('analytics-save-btn').addEventListener('click', () => {
@@ -2272,7 +2695,13 @@
 
   shippingModeToggle.addEventListener('click', (e) => {
     const btn = e.target.closest('.mode-btn');
-    if (btn) setShippingMode(btn.dataset.mode);
+    if (!btn) return;
+    setShippingMode(btn.dataset.mode);
+    fetch('/api/settings.php', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kvikk_auto_mode: btn.dataset.mode === 'auto' ? '1' : '0' })
+    }).catch(() => pushNotification('Nem sikerült menteni a szállítási módot a szerverre.', 'danger'));
   });
 
   // ---- Szállítás: egyeztetés (rendelések vs Kvikk csomagok) ----
@@ -2374,6 +2803,81 @@
   setShippingMode('manual');
   renderShippingReconciliation();
 
+  fetch('/api/settings.php')
+    .then(res => res.json())
+    .then(settings => {
+      setShippingMode(settings.kvikk_auto_mode === '1' ? 'auto' : 'manual');
+      const courierInput = document.getElementById('kvikk-default-courier');
+      if (courierInput && settings.kvikk_default_courier) courierInput.value = settings.kvikk_default_courier;
+    })
+    .catch(() => {});
+
+  const kvikkDefaultCourierSaveBtn = document.getElementById('kvikk-default-courier-save-btn');
+  if (kvikkDefaultCourierSaveBtn) {
+    kvikkDefaultCourierSaveBtn.addEventListener('click', () => {
+      const value = document.getElementById('kvikk-default-courier').value;
+      fetch('/api/settings.php', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kvikk_default_courier: value })
+      }).then(() => {
+        flashSaveStatus(document.getElementById('kvikk-default-courier-save-status'));
+        pushNotification('Alapértelmezett futár mentve.', 'success');
+      }).catch(() => pushNotification('Nem sikerült menteni az alapértelmezett futárt.', 'danger'));
+    });
+  }
+
+  // ---- Kvikk kapcsolat — valódi API-hívás (GET /v1/account-details) ----
+  const kvikkCourierNameHu = { mpl: 'MPL', foxpost: 'Foxpost', dpd: 'DPD', gls: 'GLS', packeta: 'Packeta', famafutar: 'FámaFutár' };
+  document.getElementById('test-kvikk-connection-btn').addEventListener('click', () => {
+    const pill = document.getElementById('kvikk-connection-pill');
+    const detail = document.getElementById('kvikk-connection-detail');
+    pill.className = 'pill pill--neutral';
+    pill.textContent = 'Ellenőrzés…';
+    fetch('/api/kvikk-account.php')
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Ismeretlen hiba.');
+        return data;
+      })
+      .then(data => {
+        const account = data.account || {};
+        const couriers = account.couriers || [];
+        const sender = (account.senders || [])[0];
+        pill.className = 'pill pill--success';
+        pill.textContent = 'Csatlakozva';
+        const courierList = couriers
+          .map(c => `${c.name || kvikkCourierNameHu[c.type] || '?'} — ${c.status === 'active' ? 'aktív' : 'inaktív'}`)
+          .join(', ');
+        detail.innerHTML = `<strong>Sikeres kapcsolat</strong> a Kvikk API-val.${sender ? ` Feladó: <strong>${sender.name}</strong>, ${sender.city || ''} ${sender.address || ''}.` : ''}${courierList ? `<br>Futárok: ${courierList}.` : ''}`;
+        pushNotification('Kvikk kapcsolat rendben — valódi API-választ kaptunk.', 'success');
+      })
+      .catch(err => {
+        pill.className = 'pill pill--danger';
+        pill.textContent = 'Sikertelen';
+        detail.textContent = `Nem sikerült a Kvikk API-t elérni: ${err.message}`;
+        pushNotification(`Kvikk kapcsolat sikertelen: ${err.message}`, 'danger');
+      });
+  });
+
+  fetch('/api/settings.php')
+    .then(res => res.json())
+    .then(settings => {
+      if (settings.kvikk_webhook_secret) document.getElementById('kvikk-webhook-secret').value = settings.kvikk_webhook_secret;
+    })
+    .catch(() => {});
+  document.getElementById('kvikk-webhook-secret-save-btn').addEventListener('click', () => {
+    const value = document.getElementById('kvikk-webhook-secret').value;
+    fetch('/api/settings.php', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kvikk_webhook_secret: value })
+    }).then(() => {
+      flashSaveStatus(document.getElementById('kvikk-webhook-secret-save-status'));
+      pushNotification('Kvikk webhook-titok mentve.', 'success');
+    }).catch(() => pushNotification('Nem sikerült elmenteni a Kvikk webhook-titkot.', 'danger'));
+  });
+
   // ---- Visszaküldések: Kvikk visszaküldés ↔ Stripe visszatérítés egyeztetés ----
   let returnsReconcileCategories = {};
 
@@ -2463,7 +2967,50 @@
     openOrderByNumber(row.dataset.order);
   });
 
-  renderReturnsReconciliation();
+  // ---- visszaküldések betöltése a backend API-ról ----
+  const returnsKvikkPill = {
+    returned: { cls: 'pill pill--success', text: 'Visszaküldve' },
+    intransit: { cls: 'pill pill--warn', text: 'Úton visszafelé' }
+  };
+  const returnsStripePill = {
+    refunded: { cls: 'pill pill--success', text: 'Visszatérítve' },
+    pending: { cls: 'pill pill--danger', text: 'Még nincs visszatérítve' },
+    na: { cls: 'pill pill--neutral', text: '— még nem esedékes' }
+  };
+  function buildReturnRowInnerHtml(r){
+    const kvikk = returnsKvikkPill[r.kvikkStatus] || { cls: 'pill pill--neutral', text: r.kvikkStatus };
+    const stripe = returnsStripePill[r.stripeStatus] || { cls: 'pill pill--neutral', text: r.stripeStatus };
+    const stripeLink = (r.stripeStatus === 'refunded' || r.stripeStatus === 'pending') && r.stripeRef
+      ? ` <a class="stripe-ref-link" style="font-size:11.5px" href="${stripeDashboardUrl(r.stripeRef, 'test')}" target="_blank" rel="noopener">Stripe →</a>`
+      : '';
+    return `
+      <td class="mono">${formatOrderDate(r.returnDate)}</td><td class="mono order-link-btn">#${r.orderNumber}</td><td>${r.customerName}</td><td class="num">${r.amount.toLocaleString('hu-HU')} Ft</td>
+      <td><span class="${kvikk.cls}">${kvikk.text}</span></td>
+      <td><span class="${stripe.cls}">${stripe.text}</span>${stripeLink}</td>
+    `;
+  }
+  function renderReturnRow(r){
+    const row = document.createElement('tr');
+    row.className = 'row-clickable';
+    row.dataset.order = r.orderNumber;
+    row.dataset.kvikkStatus = r.kvikkStatus;
+    row.dataset.stripeStatus = r.stripeStatus;
+    row.title = 'Kattints a rendelés megnyitásához';
+    row.innerHTML = buildReturnRowInnerHtml(r);
+    return row;
+  }
+  function loadReturns(){
+    fetch('/api/returns.php')
+      .then(res => res.json())
+      .then(returns => {
+        const tbody = document.getElementById('returns-tbody');
+        tbody.innerHTML = '';
+        returns.forEach(r => tbody.appendChild(renderReturnRow(r)));
+        renderReturnsReconciliation();
+      })
+      .catch(() => pushNotification('Nem sikerült betölteni a visszaküldéseket a szerverről.', 'danger'));
+  }
+  loadReturns();
 
   // ---- lépésenkénti (wizard) útmutató: Stripe CLI ----
   function initWizard(modalId, dotsId, openBtnId){
@@ -2531,9 +3078,6 @@
     const searchDropdown = document.getElementById('search-dropdown');
     let resultHandlers = {};
 
-    function escapeHtml(str){
-      return String(str).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
-    }
     function highlight(text, q){
       const escaped = escapeHtml(text);
       if (!q) return escaped;

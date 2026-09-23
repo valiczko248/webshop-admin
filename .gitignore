@@ -1,3 +1,11 @@
 .env
 config.php
 backend/data/
+uploads/products/*
+uploads/invoices/*
+uploads/labels/*
+!uploads/products/.gitkeep
+!uploads/invoices/.gitkeep
+!uploads/invoices/.htaccess
+!uploads/labels/.gitkeep
+!uploads/labels/.htaccess

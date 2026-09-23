@@ -1,3 +1,10 @@
+<?php
+require_once __DIR__ . '/../backend/auth.php';
+require_login();
+$stmt = db()->prepare('SELECT email FROM admin_users WHERE id = ?');
+$stmt->execute([$_SESSION['admin_id']]);
+$adminEmail = $stmt->fetchColumn() ?: '';
+?>
 <!DOCTYPE html>
 <html lang="hu">
 <head>
@@ -103,7 +110,13 @@
             <button type="button" class="notif-view-all" id="notif-view-all-btn">Összes értesítés megtekintése →</button>
           </div>
         </div>
-        <div class="avatar">V</div>
+        <div class="notif-wrap">
+          <button type="button" class="avatar" id="account-menu-btn" aria-label="Fiók"><?= htmlspecialchars(mb_strtoupper(mb_substr($adminEmail, 0, 1))) ?></button>
+          <div class="notif-dropdown" id="account-menu-dropdown" style="right:0; width:220px;">
+            <div class="notif-head" style="text-transform:none; letter-spacing:normal; font-size:12.5px;"><?= htmlspecialchars($adminEmail) ?></div>
+            <a href="/logout.php" class="notif-view-all" style="display:block; text-decoration:none;">Kijelentkezés</a>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -125,78 +138,6 @@
               <tr><th>Rendelés</th><th>Vevő</th><th class="num">Összeg</th><th>Fizetés</th><th>Szállítás</th><th>Számla</th><th>Dátum</th></tr>
             </thead>
             <tbody id="orders-tbody">
-              <tr class="row-clickable" data-order="0231" data-payment-method="card" data-invoiced="" data-invoice-file="" data-courier="foxpost" data-time="09:14">
-                <td class="mono">#0231</td><td>Kovács Anna</td><td class="num">12 900 Ft</td>
-                <td><span class="pill pill--success">Fizetve</span></td>
-                <td><span class="pill pill--warn">Csomagolás alatt</span></td>
-                <td><span class="pill pill--warn order-invoice-pill">Nincs kiállítva</span></td>
-                <td class="mono">09.20.</td>
-              </tr>
-              <tr class="row-clickable" data-order="0230" data-payment-method="card" data-invoiced="true" data-invoice-file="szamla_0230.pdf" data-courier="mpl" data-time="14:02">
-                <td class="mono">#0230</td><td>Nagy Bence</td><td class="num">9 400 Ft</td>
-                <td><span class="pill pill--success">Fizetve</span></td>
-                <td>
-                  <span class="pill pill--neutral">Feladva</span>
-                  <span class="sync-tag" title="Automatikusan frissül a Kvikk webhookból">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 0 1 14.5-4.5M20 12a8 8 0 0 1-14.5 4.5"/><path d="M18 3v5h-5M6 21v-5h5"/></svg>
-                    Kvikk
-                  </span>
-                </td>
-                <td><span class="pill pill--success order-invoice-pill">Kiállítva</span></td>
-                <td class="mono">09.19.</td>
-              </tr>
-              <tr class="row-clickable" data-order="0229" data-payment-method="card" data-invoiced="" data-invoice-file="" data-courier="gls" data-time="19:47">
-                <td class="mono">#0229</td><td>Szabó Petra</td><td class="num">21 800 Ft</td>
-                <td><span class="pill pill--warn">Függőben</span></td>
-                <td><span class="pill pill--warn">Vár fizetésre</span></td>
-                <td><span class="pill pill--warn order-invoice-pill">Nincs kiállítva</span></td>
-                <td class="mono">09.19.</td>
-              </tr>
-              <tr class="row-clickable" data-order="0228" data-payment-method="cod" data-invoiced="true" data-invoice-file="" data-courier="packeta" data-time="11:23">
-                <td class="mono">#0228</td><td>Tóth Dávid</td><td class="num">12 900 Ft</td>
-                <td>
-                  <span class="pill pill--success">Utánvét beszedve</span>
-                  <span class="sync-tag" title="A Kvikk 'delivered' webhookja igazolja, mert kézbesítéskor vette át a futár a pénzt">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 0 1 14.5-4.5M20 12a8 8 0 0 1-14.5 4.5"/><path d="M18 3v5h-5M6 21v-5h5"/></svg>
-                    Kvikk
-                  </span>
-                </td>
-                <td>
-                  <span class="pill pill--success">Kézbesítve</span>
-                  <span class="sync-tag" title="Automatikusan frissül a Kvikk webhookból">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 0 1 14.5-4.5M20 12a8 8 0 0 1-14.5 4.5"/><path d="M18 3v5h-5M6 21v-5h5"/></svg>
-                    Kvikk
-                  </span>
-                </td>
-                <td><span class="pill pill--success order-invoice-pill">Kiállítva</span></td>
-                <td class="mono">09.18.</td>
-              </tr>
-              <tr class="row-clickable" data-order="0226" data-payment-method="cod" data-invoiced="" data-invoice-file="" data-courier="dpd" data-time="16:58">
-                <td class="mono">#0226</td><td>Kiss Gábor</td><td class="num">8 900 Ft</td>
-                <td>
-                  <span class="pill pill--warn">Utánvét — kézbesítéskor</span>
-                  <span class="sync-tag" title="A Kvikk 'delivered' webhookja fogja lezárni, amikor a futár átveszi a pénzt">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 0 1 14.5-4.5M20 12a8 8 0 0 1-14.5 4.5"/><path d="M18 3v5h-5M6 21v-5h5"/></svg>
-                    Kvikk
-                  </span>
-                </td>
-                <td>
-                  <span class="pill pill--neutral">Feladva</span>
-                  <span class="sync-tag" title="Automatikusan frissül a Kvikk webhookból">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 0 1 14.5-4.5M20 12a8 8 0 0 1-14.5 4.5"/><path d="M18 3v5h-5M6 21v-5h5"/></svg>
-                    Kvikk
-                  </span>
-                </td>
-                <td><span class="pill pill--warn order-invoice-pill">Nincs kiállítva</span></td>
-                <td class="mono">09.17.</td>
-              </tr>
-              <tr class="row-clickable" data-order="0227" data-payment-method="card" data-invoiced="" data-invoice-file="" data-courier="foxpost" data-time="10:05">
-                <td class="mono">#0227</td><td>Horváth Eszter</td><td class="num">6 200 Ft</td>
-                <td><span class="pill pill--danger">Lemondva</span></td>
-                <td><span class="pill pill--danger">—</span></td>
-                <td><span class="pill pill--neutral order-invoice-pill">—</span></td>
-                <td class="mono">09.17.</td>
-              </tr>
             </tbody>
           </table></div>
           <p class="empty-note">Kattints egy sorra a rendelés részleteiért. Az egyes jelölők jelentését lásd lent.</p>
@@ -334,21 +275,6 @@
               <tr><th>Kód</th><th>Kedvezmény</th><th>Érvényes</th><th class="num">Felhasználva</th><th>Állapot</th><th></th></tr>
             </thead>
             <tbody id="coupons-tbody">
-              <tr data-excluded="Doboz" data-discount-type="percent" data-discount-value="10" data-limit-per-email="" data-note="Ősszel indított IG-kampányhoz, csak story-linkből érhető el.">
-                <td class="mono"><span class="coupon-code-main">OSSZ10</span><div class="exclude-sub">Kivéve: Doboz</div><div class="coupon-note-sub" title="Ősszel indított IG-kampányhoz, csak story-linkből érhető el.">Ősszel indított IG-kampányhoz, csak story-linkből érhető el.</div></td><td>10%</td><td class="mono">2026.10.01-ig</td><td class="num">14 / 100</td>
-                <td><span class="pill pill--success">Aktív</span></td>
-                <td><button type="button" class="row-edit-btn" aria-label="Kupon szerkesztése"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
-              </tr>
-              <tr data-excluded="" data-discount-type="fixed" data-discount-value="1500" data-limit-per-email="1">
-                <td class="mono"><span class="coupon-code-main">ELSOVEVO</span><div class="email-limit-sub">Max 1× / email</div></td><td>1 500 Ft</td><td class="mono">nincs lejárat</td><td class="num">62 / —</td>
-                <td><span class="pill pill--success">Aktív</span></td>
-                <td><button type="button" class="row-edit-btn" aria-label="Kupon szerkesztése"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
-              </tr>
-              <tr data-excluded="" data-discount-type="percent" data-discount-value="15" data-limit-per-email="">
-                <td class="mono"><span class="coupon-code-main">NYAR2026</span></td><td>15%</td><td class="mono">2026.08.31-ig lejárt</td><td class="num">208 / 300</td>
-                <td><span class="pill pill--danger">Lejárt</span></td>
-                <td><button type="button" class="row-edit-btn" aria-label="Kupon szerkesztése"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
-              </tr>
             </tbody>
           </table></div>
         </div>
@@ -464,18 +390,6 @@
               <tr><th>Név</th><th>Email</th><th>Telefon</th><th class="num">Rendelés</th><th>Utolsó vásárlás</th></tr>
             </thead>
             <tbody id="customers-tbody">
-              <tr class="row-clickable" data-customer="kovacs-anna">
-                <td>Kovács Anna</td><td class="mono">kovacs.anna@email.hu</td><td class="mono">+36 30 123 4567</td>
-                <td class="num">3</td><td class="mono">09.20.</td>
-              </tr>
-              <tr class="row-clickable" data-customer="nagy-bence">
-                <td>Nagy Bence</td><td class="mono">nagy.bence@email.hu</td><td class="mono">+36 20 987 6543</td>
-                <td class="num">1</td><td class="mono">09.19.</td>
-              </tr>
-              <tr class="row-clickable" data-customer="szabo-petra">
-                <td>Szabó Petra</td><td class="mono">szabo.petra@email.hu</td><td class="mono">+36 70 555 1122</td>
-                <td class="num">5</td><td class="mono">09.19.</td>
-              </tr>
             </tbody>
           </table></div>
           <p class="empty-note">Kattints egy vásárlóra a rendelési előzményeinek megtekintéséhez.</p>
@@ -504,7 +418,7 @@
             </div>
             <div>
               <p style="font-weight:700; font-size:13.5px; margin:0 0 8px">Automata mód</p>
-              <p class="empty-note" style="padding:0">A backend (miután elkészül) magától elküldi az adatokat a Kvikknek, amint egy rendelés kifizetésre kerül — nincs kézi másolgatás, a csomag és a nyomkövetési szám azonnal létrejön. Feltétele, hogy MINDEN eladható terméknek legyen megadva a súlya a Termékeknél, különben a Kvikk API hibát ad.</p>
+              <p class="empty-note" style="padding:0">A backend magától elküldi az adatokat a Kvikknek, amint egy rendelés kifizetésre kerül (kártyás fizetésnél) vagy beérkezik (utánvétnél) — nincs kézi másolgatás, a csomag és a nyomkövetési szám azonnal létrejön. Feltétele, hogy MINDEN eladható terméknek legyen megadva a súlya a Termékeknél, és hogy a webshop tagolt címet (utca/város/irányítószám) is küldjön, különben a Kvikk API hibát ad.</p>
             </div>
           </div>
           <p class="empty-note" style="margin-top:16px; padding:12px 14px; border:1px dashed var(--border); border-radius:8px">A jobb fenti kapcsolóval bármikor válthatsz — a váltás nem érint már elküldött csomagokat, csak azt dönti el, hogy az <strong>ezután</strong> érkező új rendeléseket ki adja fel a Kvikknek: Te (Kézi) vagy a rendszer (Automata). A kettő akár keverve is előfordulhat, ha menet közben váltasz.</p>
@@ -519,6 +433,29 @@
             <a class="btn btn--ghost" href="https://app.kvikk.hu" target="_blank" rel="noopener">Visszaküldések portál →</a>
           </div>
           <p class="empty-note" style="padding:8px 0 0">Ezek egyelőre mind a Kvikk főoldalára visznek — a saját fiókodon belül onnan éred el a konkrét almenüt. Ha a Kvikk ad közvetlen linket egy-egy funkcióhoz, ide be tudjuk illeszteni pontosan.</p>
+        </div>
+
+        <div class="card" style="padding:22px 24px 26px; margin-bottom:20px">
+          <div class="view-head" style="margin-bottom:8px">
+            <div>
+              <span class="view-eyebrow">valódi API-hívás — nem szimuláció</span>
+              <h2 style="font-size:15px; font-weight:700; margin:0">Kvikk kapcsolat ellenőrzése</h2>
+            </div>
+            <span class="pill pill--neutral" id="kvikk-connection-pill">Még nem tesztelve</span>
+          </div>
+          <p class="empty-note" style="padding:0 0 10px">Ez ténylegesen lekérdezi a Kvikk API-t a szerveren tárolt API-kulccsal (<span class="mono">GET /v1/account-details</span>) — visszaadja az aktív futárokat és a feladó adataidat, hogy lásd, valóban működik-e a kapcsolat.</p>
+          <div class="order-detail-box" id="kvikk-connection-detail">Még nem futott le ellenőrzés.</div>
+          <div class="settings-save-row" style="margin-top:10px">
+            <button type="button" class="btn btn--ghost btn--small" id="test-kvikk-connection-btn">Kapcsolat tesztelése</button>
+          </div>
+          <div class="field" style="max-width:420px; margin-top:16px">
+            <label for="kvikk-webhook-secret">Kvikk webhook-titok (a Kvikk fiókodban, webhook létrehozásakor kapod)</label>
+            <input type="password" id="kvikk-webhook-secret" placeholder="csak egyszer mutatja a Kvikk, mentsd el biztonságos helyre is">
+          </div>
+          <div class="settings-save-row" style="margin-top:8px">
+            <span class="save-status" id="kvikk-webhook-secret-save-status"></span>
+            <button type="button" class="btn btn--ghost btn--small" id="kvikk-webhook-secret-save-btn">Webhook-titok mentése</button>
+          </div>
         </div>
 
         <div class="card" style="padding:22px 24px 26px; margin-bottom:20px">
@@ -589,12 +526,31 @@
           </div>
           <p class="modal-section-label" style="margin-top:18px">Amit a backend automatikusan átad a Kvikknek</p>
           <ul style="margin:0; padding-left:20px; font-size:13px; color:var(--text-soft); line-height:1.9">
-            <li>Vevő neve, telefonszáma, email címe, szállítási címe — a rendelésből</li>
+            <li>Vevő neve, telefonszáma, email címe, szállítási címe — a rendelésből (a webshopnak <span class="mono">addressLine</span>/<span class="mono">city</span>/<span class="mono">postcode</span> mezőkben tagoltan is el kell küldenie, az egybefűzött cím-szöveg ehhez nem elég)</li>
             <li>Rendelésazonosító (<span class="mono">orderID</span>) — így párosítható vissza a mi rendelésünkhöz</li>
             <li>Csomag súlya — a megrendelt termék(ek) Termékeknél megadott súlya alapján, összesítve</li>
             <li>Utánvét összege (<span class="mono">cod</span>) — 0, ha kártyával fizetett Stripe-on</li>
-            <li>Futár — a vevő checkoutban választott módja (Foxpost / MPL / GLS / DPD / Packeta)</li>
+            <li>Futár — a rendelésben megadott futár, vagy ha az nem érvényes Kvikk-futárkód, az alábbi alapértelmezett</li>
           </ul>
+          <div class="field" style="max-width:260px; margin-top:16px">
+            <label for="kvikk-default-courier">Alapértelmezett futár (ha a rendelés nem ad meg érvényeset)</label>
+            <select id="kvikk-default-courier">
+              <option value="">— nincs megadva —</option>
+              <option value="mpl">MPL</option>
+              <option value="foxpost">Foxpost</option>
+              <option value="packeta">Packeta</option>
+              <option value="famafutar">FámaFutár</option>
+              <option value="dpd">DPD</option>
+              <option value="gls">GLS</option>
+            </select>
+          </div>
+          <div class="settings-save-row" style="margin-top:8px">
+            <span class="save-status" id="kvikk-default-courier-save-status"></span>
+            <button type="button" class="btn btn--ghost btn--small" id="kvikk-default-courier-save-btn">Mentés</button>
+          </div>
+          <p class="modal-section-label" style="margin-top:18px">Legutóbbi automata csomag-létrehozási hibák</p>
+          <p class="empty-note" style="padding:0 0 8px">Ha egy rendelésnél nem sikerül automatikusan létrehozni a Kvikk-csomagot (pl. hiányzó súly vagy cím), itt jelenik meg — a rendelést ilyenkor kézzel kell feladni a Kvikk oldalán.</p>
+          <div id="kvikk-shipment-errors-list"><p class="empty-note">Nincs hibás automata csomag-létrehozás.</p></div>
         </div>
 
         <div class="card" style="padding:22px 24px 26px; margin-top:20px">
@@ -652,21 +608,6 @@
               <tr><th>Dátum</th><th>Rendelés</th><th>Vevő</th><th class="num">Összeg</th><th>Kvikk állapot</th><th>Stripe visszatérítés</th></tr>
             </thead>
             <tbody id="returns-tbody">
-              <tr class="row-clickable" data-order="0212" data-kvikk-status="returned" data-stripe-status="refunded" title="Kattints a rendelés megnyitásához">
-                <td class="mono">09.10.</td><td class="mono order-link-btn">#0212</td><td>Teszt Judit</td><td class="num">9 800 Ft</td>
-                <td><span class="pill pill--success">Visszaküldve</span></td>
-                <td><span class="pill pill--success">Visszatérítve</span> <a class="stripe-ref-link" style="font-size:11.5px" href="https://dashboard.stripe.com/test/payments/pi_3PtestEF11jTesztJ" target="_blank" rel="noopener">Stripe →</a></td>
-              </tr>
-              <tr class="row-clickable" data-order="0205" data-kvikk-status="returned" data-stripe-status="pending" title="Kattints a rendelés megnyitásához">
-                <td class="mono">09.15.</td><td class="mono order-link-btn">#0205</td><td>Varga Zsolt</td><td class="num">12 900 Ft</td>
-                <td><span class="pill pill--success">Visszaküldve</span></td>
-                <td><span class="pill pill--danger">Még nincs visszatérítve</span> <a class="stripe-ref-link" style="font-size:11.5px" href="https://dashboard.stripe.com/test/payments/pi_3PtestGH22kVargaZs" target="_blank" rel="noopener">Stripe →</a></td>
-              </tr>
-              <tr class="row-clickable" data-order="0193" data-kvikk-status="intransit" data-stripe-status="na" title="Kattints a rendelés megnyitásához">
-                <td class="mono">09.18.</td><td class="mono order-link-btn">#0193</td><td>Fekete Márk</td><td class="num">6 200 Ft</td>
-                <td><span class="pill pill--warn">Úton visszafelé</span></td>
-                <td><span class="pill pill--neutral">— még nem esedékes</span></td>
-              </tr>
             </tbody>
           </table></div>
           <p class="empty-note">Ez a lista majd a Kvikk visszaküldés-webhookjából töltődik automatikusan — amint egy csomag "visszaküldve" állapotba kerül, itt megjelenik, és amíg nincs hozzá Stripe-visszatérítés, a fenti egyeztetés jelzi.</p>
@@ -718,6 +659,11 @@
               <label for="payment-webhook-url">Webhook endpoint URL (ezt add meg a Stripe-nál)</label>
               <input type="text" id="payment-webhook-url" class="mono" value="https://webshop.hu/webhook/stripe.php" readonly>
               <p class="empty-note" style="padding:4px 0 0">Ezt te adod meg a Stripe-nál, nem tőlük kapod: <a class="stripe-help-link" data-target="webhooks" href="https://dashboard.stripe.com/webhooks" target="_blank" rel="noopener">Stripe Dashboard → Fejlesztők → Webhookok → + Endpoint hozzáadása →</a></p>
+            </div>
+            <div class="field">
+              <label for="storefront-url">Webshop URL (a "Fizetés sikertelen" emailben a újrapróbálkozás-linkhez)</label>
+              <input type="text" id="storefront-url" class="mono" placeholder="https://webshop.hu/penztar">
+              <p class="empty-note" style="padding:4px 0 0">Ha üresen marad, a sikertelen fizetésről szóló email is kimegy, csak a linksor üres marad benne.</p>
             </div>
           </div>
           <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap">
@@ -812,94 +758,6 @@
               <tr><th>Sablon</th><th>Küldés alkalma</th><th>Állapot</th><th></th></tr>
             </thead>
             <tbody id="emails-tbody">
-              <tr data-subject="Köszönjük a rendelésed! (#{{rendelesszam}})" data-body="Kedves {{vevo_nev}}!
-
-Köszönjük a rendelésed, sikeresen megérkezett a fizetés. Rendelésed adatai:
-
-Rendelésszám: {{rendelesszam}}
-Összeg: {{osszeg}}
-
-Hamarosan csomagoljuk és feladjuk a rendelésed, erről is kapsz majd egy emailt.
-
-Üdvözlettel,
-Webshop csapata">
-                <td>Rendelés visszaigazolás</td>
-                <td class="mono">Sikeres fizetés után</td>
-                <td><span class="pill pill--success">Aktív</span></td>
-                <td><button type="button" class="row-edit-btn" aria-label="Sablon szerkesztése"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
-              </tr>
-              <tr data-subject="Feladtuk a csomagod! (#{{rendelesszam}})" data-body="Kedves {{vevo_nev}}!
-
-Csomagod feladtuk, hamarosan megérkezik. Nyomkövetési szám: {{nyomkovetesi_szam}}
-
-Üdvözlettel,
-Webshop csapata">
-                <td>Feladva értesítés</td>
-                <td class="mono">Kvikk: "shipped" esemény</td>
-                <td><span class="pill pill--success">Aktív</span></td>
-                <td><button type="button" class="row-edit-btn" aria-label="Sablon szerkesztése"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
-              </tr>
-              <tr data-subject="Kézbesítették a csomagod (#{{rendelesszam}})" data-body="Kedves {{vevo_nev}}!
-
-A futár kézbesítette a csomagod. Reméljük, elégedett leszel a rendeléseddel!
-
-Üdvözlettel,
-Webshop csapata">
-                <td>Kézbesítve értesítés</td>
-                <td class="mono">Kvikk: "delivered" esemény</td>
-                <td><span class="pill pill--neutral">Inaktív</span></td>
-                <td><button type="button" class="row-edit-btn" aria-label="Sablon szerkesztése"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
-              </tr>
-              <tr data-subject="Elfelejtettél valamit a kosaradban" data-body="Kedves {{vevo_nev}}!
-
-Úgy vettük észre, kosárban hagytál egy terméket. Ha még gondolkozol rajta, itt egy emlékeztető — a kosarad vár rád.
-
-Üdvözlettel,
-Webshop csapata">
-                <td>Kosár-emlékeztető</td>
-                <td class="mono">Kosárban hagyott termék, 24 óra után</td>
-                <td><span class="pill pill--neutral">Inaktív</span></td>
-                <td><button type="button" class="row-edit-btn" aria-label="Sablon szerkesztése"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
-              </tr>
-              <tr data-subject="Sikertelen fizetés — próbáld újra (#{{rendelesszam}})" data-body="Kedves {{vevo_nev}}!
-
-Sajnos a fizetésed nem sikerült (a bankod elutasította vagy hiba történt). A rendelésed még nincs törölve — az alábbi linken újra megpróbálhatod a fizetést:
-
-{{fizetes_link}}
-
-Ha kérdésed van, válaszolj erre az emailre.
-
-Üdvözlettel,
-Webshop csapata">
-                <td>Fizetés sikertelen</td>
-                <td class="mono">Stripe: elutasított fizetés</td>
-                <td><span class="pill pill--success">Aktív</span></td>
-                <td><button type="button" class="row-edit-btn" aria-label="Sablon szerkesztése"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
-              </tr>
-              <tr data-subject="Visszatérítést indítottunk (#{{rendelesszam}})" data-body="Kedves {{vevo_nev}}!
-
-Megkezdtük a {{osszeg}} összegű visszatérítésed feldolgozását. A pénz 5-10 munkanapon belül megjelenik a bankszámládon, arra a kártyára, amivel fizettél.
-
-Üdvözlettel,
-Webshop csapata">
-                <td>Visszatérítés visszaigazolása</td>
-                <td class="mono">Admin: "Visszatérítés indítása" gomb</td>
-                <td><span class="pill pill--success">Aktív</span></td>
-                <td><button type="button" class="row-edit-btn" aria-label="Sablon szerkesztése"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
-              </tr>
-              <tr data-subject="A GDPR-kérésedet teljesítettük" data-body="Kedves Ügyfelünk!
-
-Tájékoztatunk, hogy a személyes adataiddal kapcsolatos kérésedet (adatexport vagy törlés) teljesítettük.
-
-Ha bármi kérdésed van az adatkezeléssel kapcsolatban, keress minket bizalommal.
-
-Üdvözlettel,
-Webshop csapata">
-                <td>GDPR-kérelem teljesítve</td>
-                <td class="mono">Admin: GDPR-kérelem "Teljesítve" gomb</td>
-                <td><span class="pill pill--success">Aktív</span></td>
-                <td><button type="button" class="row-edit-btn" aria-label="Sablon szerkesztése"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>
-              </tr>
             </tbody>
           </table></div>
           <p class="empty-note">A {{vevo_nev}}, {{rendelesszam}}, {{osszeg}}, {{nyomkovetesi_szam}}, {{fizetes_link}} jelölők automatikusan kitöltődnek majd az adott rendelés adataival.</p>
@@ -1070,107 +928,6 @@ Webshop csapata">
               <tr><th>Dokumentum</th><th>Hatályos ettől</th><th>Utolsó mentés</th><th>Állapot</th><th></th></tr>
             </thead>
             <tbody id="legal-docs-tbody">
-              <tr data-url="https://webshop.hu/impresszum" data-effective="2026-09-01" data-archived="false" data-content="Cégnév: Webshop Kft.
-Székhely: 1000 Budapest, Példa utca 1.
-Adószám: 12345678-1-42
-Cégjegyzékszám: 01-09-000000
-Tárhelyszolgáltató: Rackhost Zrt.
-Elérhetőség: rendeles@webshop.hu">
-                <td><div class="prod-name">Impresszum</div><a class="stripe-ref-link" style="font-size:11.5px" href="https://webshop.hu/impresszum" target="_blank" rel="noopener">Megtekintés az oldalon →</a></td>
-                <td class="mono">2026.09.01.</td>
-                <td class="mono">2026.09.01.</td>
-                <td><span class="pill pill--success">Publikálva</span></td>
-                <td>
-                  <div class="row-actions">
-                    <button type="button" class="row-edit-btn" aria-label="Szerkesztés"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
-                    <button type="button" class="row-edit-btn row-archive-btn" aria-label="Archiválás"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 13h4"/></svg></button>
-                  </div>
-                </td>
-              </tr>
-              <tr data-url="https://webshop.hu/aszf" data-effective="2026-09-01" data-archived="false" data-content="Jelen Általános Szerződési Feltételek a Webshop.hu oldalon leadott rendelésekre vonatkoznak.
-
-1. A szerződő felek
-2. Rendelés menete
-3. Fizetési módok
-4. Szállítási feltételek
-5. Elállási jog
-6. Panaszkezelés">
-                <td><div class="prod-name">ÁSZF</div><a class="stripe-ref-link" style="font-size:11.5px" href="https://webshop.hu/aszf" target="_blank" rel="noopener">Megtekintés az oldalon →</a></td>
-                <td class="mono">2026.09.01.</td>
-                <td class="mono">2026.09.01.</td>
-                <td><span class="pill pill--success">Publikálva</span></td>
-                <td>
-                  <div class="row-actions">
-                    <button type="button" class="row-edit-btn" aria-label="Szerkesztés"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
-                    <button type="button" class="row-edit-btn row-archive-btn" aria-label="Archiválás"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 13h4"/></svg></button>
-                  </div>
-                </td>
-              </tr>
-              <tr data-url="https://webshop.hu/adatkezelesi-tajekoztato" data-effective="2026-09-01" data-archived="false" data-content="A Webshop.hu elkötelezett a vásárlói adatok védelme mellett. Ez a tájékoztató bemutatja, milyen adatokat kezelünk, milyen célból, és milyen jogok illetnek meg az adataid kapcsán (GDPR).
-
-Kezelt adatok: név, email, telefonszám, szállítási cím.
-Célja: rendelés teljesítése, számlázás, kapcsolattartás.
-Jogalap: szerződés teljesítése.
-Adatkezelés időtartama: a törvényi megőrzési idő lejártáig.">
-                <td><div class="prod-name">Adatkezelési tájékoztató</div><a class="stripe-ref-link" style="font-size:11.5px" href="https://webshop.hu/adatkezelesi-tajekoztato" target="_blank" rel="noopener">Megtekintés az oldalon →</a></td>
-                <td class="mono">2026.09.01.</td>
-                <td class="mono">2026.09.01.</td>
-                <td><span class="pill pill--success">Publikálva</span></td>
-                <td>
-                  <div class="row-actions">
-                    <button type="button" class="row-edit-btn" aria-label="Szerkesztés"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
-                    <button type="button" class="row-edit-btn row-archive-btn" aria-label="Archiválás"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 13h4"/></svg></button>
-                  </div>
-                </td>
-              </tr>
-              <tr data-url="https://webshop.hu/cookie-szabalyzat" data-effective="2026-09-05" data-archived="false" data-content="Az oldal sütiket (cookie-kat) használ a működéshez, valamint — hozzájárulásod esetén — analitikai és marketing célból (Google Analytics, Meta Pixel, Microsoft Clarity).
-
-Szükséges sütik: mindig aktívak, a kosár és bejelentkezés működéséhez kellenek.
-Analitikai sütik: csak hozzájárulás után aktiválódnak.
-A hozzájárulásod bármikor visszavonhatod.">
-                <td><div class="prod-name">Cookie szabályzat</div><a class="stripe-ref-link" style="font-size:11.5px" href="https://webshop.hu/cookie-szabalyzat" target="_blank" rel="noopener">Megtekintés az oldalon →</a></td>
-                <td class="mono">2026.09.05.</td>
-                <td class="mono">2026.09.05.</td>
-                <td><span class="pill pill--neutral">Piszkozat</span></td>
-                <td>
-                  <div class="row-actions">
-                    <button type="button" class="row-edit-btn" aria-label="Szerkesztés"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
-                    <button type="button" class="row-edit-btn row-archive-btn" aria-label="Archiválás"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 13h4"/></svg></button>
-                  </div>
-                </td>
-              </tr>
-              <tr data-url="https://webshop.hu/elallasi-nyilatkozat" data-effective="2026-09-01" data-archived="false" data-content="Tájékoztatjuk, hogy a fogyasztót a 45/2014. (II. 26.) Korm. rendelet (és az azt módosító, 2022-től hatályos Omnibus-implementáció) alapján a termék kézhezvételétől számított 14 napon belül indoklás nélküli elállási jog illeti meg.
-
-Az elállási jog gyakorlása: a vevő elállási szándékát egyértelmű nyilatkozattal (postán vagy emailben) köteles jelezni — ehhez felhasználhatja az alábbi, jogszabály szerinti nyilatkozatmintát is, de ez nem kötelező forma.
-
-A visszaküldés módja: a termék visszaküldése a Kvikk visszaküldési portálján keresztül generált címkével történik — ez a fizikai/logisztikai lépés, amit a Kvikk biztosít, a jelen jogi nyilatkozat viszont ettől független, ezt a törvény írja elő kötelezően.
-A visszatérítés: a termék visszaérkezését követően, a vételár (és az alapértelmezett szállítási költség) 14 napon belül kerül visszautalásra a Stripe-on keresztül.
-
-—
-
-ELÁLLÁSI/FELMONDÁSI NYILATKOZATMINTA
-(csak a szerződéstől való elállási/felmondási szándék esetén töltse ki és juttassa vissza)
-
-Címzett: Webshop Kft., 1000 Budapest, Példa utca 1., rendeles@webshop.hu
-
-Alulírott kijelentem, hogy gyakorlom elállási jogomat az alábbi termék/ek adásvételére irányuló szerződés tekintetében:
-
-Szerződéskötés időpontja / átvétel időpontja:
-A fogyasztó neve:
-A fogyasztó címe:
-A fogyasztó aláírása (kizárólag papíron tett nyilatkozat esetén):
-Kelt:">
-                <td><div class="prod-name">Elállási nyilatkozat</div><a class="stripe-ref-link" style="font-size:11.5px" href="https://webshop.hu/elallasi-nyilatkozat" target="_blank" rel="noopener">Megtekintés az oldalon →</a></td>
-                <td class="mono">2026.09.01.</td>
-                <td class="mono">2026.09.01.</td>
-                <td><span class="pill pill--success">Publikálva</span></td>
-                <td>
-                  <div class="row-actions">
-                    <button type="button" class="row-edit-btn" aria-label="Szerkesztés"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
-                    <button type="button" class="row-edit-btn row-archive-btn" aria-label="Archiválás"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 13h4"/></svg></button>
-                  </div>
-                </td>
-              </tr>
             </tbody>
           </table></div>
           <p class="empty-note">Ezek a szövegek jelennek majd meg a shop lábléc-linkjein (Impresszum, ÁSZF stb.). PDF-et is feltölthetsz szöveg helyett a szerkesztő ablakban. Az "Elállási nyilatkozat" a jogszabály szerinti tájékoztató szövege — ez nem azonos a Visszaküldések oldallal: ott a ténylegesen elindított visszaküldés fizikai/pénzügyi ügyintézése történik (Kvikk + Stripe), itt csak a vevőnek szóló jogi tájékoztató szövege él.</p>
@@ -1187,20 +944,6 @@ Kelt:">
               <tr><th>Vevő email</th><th>Kérés típusa</th><th>Beérkezett</th><th>Állapot</th><th></th></tr>
             </thead>
             <tbody id="gdpr-requests-tbody">
-              <tr>
-                <td class="mono">kovacs.anna@email.hu</td>
-                <td>Adatexport</td>
-                <td class="mono">2026.09.18.</td>
-                <td><span class="pill pill--warn">Függőben</span></td>
-                <td><button type="button" class="btn btn--small gdpr-complete-btn">Teljesítve</button></td>
-              </tr>
-              <tr>
-                <td class="mono">regi.vevo@email.hu</td>
-                <td>Törlési kérelem</td>
-                <td class="mono">2026.09.10.</td>
-                <td><span class="pill pill--success">Teljesítve</span></td>
-                <td><button type="button" class="btn btn--small gdpr-complete-btn" disabled>Teljesítve</button></td>
-              </tr>
             </tbody>
           </table></div>
           <p class="empty-note">A GDPR biztosítja a vásárlók jogát, hogy kikérjék vagy töröltessék a róluk tárolt adatokat — ezek a kérések itt futnak be, 30 napon belül kell reagálni rájuk.</p>
@@ -1400,6 +1143,21 @@ Kelt:">
             </button>
           </div>
         </div>
+
+        <div class="card" style="max-width:620px; margin-top:22px; padding:22px 24px 26px">
+          <div class="view-head" style="margin-bottom:8px">
+            <div>
+              <span class="view-eyebrow">bejelentkezés</span>
+              <h2 style="font-size:15px; font-weight:700; margin:0">Adminisztrátorok</h2>
+            </div>
+            <button class="btn btn--ghost btn--small" id="new-admin-btn">+ Új admin</button>
+          </div>
+          <p class="empty-note" style="padding:0 0 10px">Akiknek bejelentkezési hozzáférése van ehhez az admin felülethez.</p>
+          <div class="table-scroll"><table>
+            <thead><tr><th>Email</th><th>Létrehozva</th><th>Utolsó belépés</th><th></th></tr></thead>
+            <tbody id="admins-tbody"></tbody>
+          </table></div>
+        </div>
       </section>
 
       <div class="modal-overlay" id="product-modal">
@@ -1514,6 +1272,32 @@ Kelt:">
       </div>
 
       <!-- globális, nézettől független modal: bárhonnan megnyitható -->
+      <div class="modal-overlay" id="admin-user-modal">
+        <div class="modal-card">
+          <div class="modal-head">
+            <h2 class="modal-title">Új admin hozzáadása</h2>
+            <button type="button" class="modal-close" id="admin-user-modal-close" aria-label="Bezárás">&times;</button>
+          </div>
+          <form id="admin-user-form" class="modal-form">
+            <div class="modal-body">
+              <div class="field" style="margin-bottom:14px">
+                <label for="admin-user-email">Email cím</label>
+                <input type="email" id="admin-user-email" required>
+              </div>
+              <div class="field">
+                <label for="admin-user-password">Jelszó (min. 8 karakter)</label>
+                <input type="password" id="admin-user-password" required minlength="8">
+              </div>
+              <p class="empty-note" style="padding:6px 0 0">Ezt az email címet és jelszót add oda annak, akinek hozzáférést szeretnél adni — ő ezzel tud majd bejelentkezni.</p>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn--ghost" id="admin-user-cancel">Mégsem</button>
+              <button type="submit" class="btn">Admin hozzáadása</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
       <div class="modal-overlay" id="notif-modal">
         <div class="modal-card modal-card--wide">
           <div class="modal-head">
@@ -1589,6 +1373,15 @@ Kelt:">
                 <label id="order-modal-payment-ref-label">Stripe tranzakció</label>
                 <div class="order-detail-box mono" id="order-modal-stripe">—</div>
               </div>
+            </div>
+
+            <div class="field" id="order-modal-coupon-wrap" style="margin-top:14px; display:none">
+              <label>Felhasznált kupon</label>
+              <div class="order-detail-box mono" id="order-modal-coupon">—</div>
+            </div>
+            <div class="field" id="order-modal-kvikk-auto-wrap" style="margin-top:14px; display:none">
+              <label>Kvikk automata csomag</label>
+              <div class="order-detail-box" id="order-modal-kvikk-auto">—</div>
             </div>
 
             <p class="modal-section-label" style="margin-top:22px">Számla</p>
@@ -1855,6 +1648,7 @@ Kelt:">
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>const CURRENT_ADMIN_ID = <?= (int) current_admin_id() ?>;</script>
 <script src="script.js"></script>
 </body>
 </html>

@@ -253,6 +253,7 @@
     background:var(--danger-text);
   }
   .avatar{
+    appearance:none; border:none; padding:0; cursor:pointer; font-family:inherit;
     width:34px;height:34px;
     border-radius:50%;
     background:var(--primary);

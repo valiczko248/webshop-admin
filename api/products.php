@@ -1,5 +1,6 @@
 <?php
-require __DIR__ . '/../backend/db.php';
+require __DIR__ . '/../backend/auth.php';
+require_api_auth();
 
 $pdo = db();
 $method = $_SERVER['REQUEST_METHOD'];
