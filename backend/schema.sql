@@ -1,0 +1,19 @@
+CREATE TABLE IF NOT EXISTS products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT NOT NULL DEFAULT 'regular',
+  name TEXT NOT NULL,
+  price INTEGER,
+  weight INTEGER,
+  stock INTEGER NOT NULL DEFAULT 0,
+  reserved INTEGER NOT NULL DEFAULT 0,
+  deduction INTEGER NOT NULL DEFAULT 1,
+  linked_name TEXT,
+  linked_qty INTEGER,
+  linked_weight INTEGER,
+  gallery TEXT NOT NULL DEFAULT '[]',
+  variants TEXT NOT NULL DEFAULT '[]',
+  addons TEXT NOT NULL DEFAULT '[]',
+  archived INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

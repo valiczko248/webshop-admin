@@ -54,6 +54,11 @@
       } else {
         pushNotification(`${prodName} készlete ${value} db-ra változott`, 'info');
       }
+      fetch(`/api/products.php?id=${row.dataset.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stock: value })
+      });
       return;
     }
     const archiveBtn = e.target.closest('.row-archive-btn');
@@ -67,6 +72,11 @@
       archiveBtn.title = wasArchived ? 'Archiválás' : 'Visszaállítás';
       applyArchivedFilter();
       pushNotification(`<strong>${getProdName(row)}</strong> ${wasArchived ? 'visszaállítva az aktív termékek közé' : 'archiválva — kikerült az aktív listából'}`, 'info');
+      fetch(`/api/products.php?id=${row.dataset.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: !wasArchived })
+      });
       return;
     }
     const deleteBtn = e.target.closest('.row-delete-btn');
@@ -74,6 +84,7 @@
       const row = deleteBtn.closest('tr');
       const prodName = getProdName(row);
       if (confirm(`Biztosan törlöd a(z) "${prodName}" terméket? Ez nem vonható vissza.`)) {
+        fetch(`/api/products.php?id=${row.dataset.id}`, { method: 'DELETE' });
         row.remove();
         pushNotification(`Törölve: <strong>${prodName}</strong>`, 'warn');
       }
@@ -271,6 +282,70 @@
     return price ? `${parseInt(price, 10).toLocaleString('hu-HU')} Ft` : '—';
   }
 
+  // ---- termékek betöltése/mentése a backend API-n keresztül ----
+  function buildProductRowInnerHtml(p){
+    const thumbHtml = p.gallery && p.gallery.length ? `<img src="${p.gallery[0]}" alt="">` : boxIconSvg;
+    const galleryBadge = p.gallery && p.gallery.length > 1 ? `<span class="gallery-badge">+${p.gallery.length - 1} kép</span>` : '';
+    const hasVariants = p.variants && p.variants.length > 0;
+    const variantExtraSubHtml = (p.variants.length || p.addons.length)
+      ? `<div class="variant-extra-sub">${[
+          p.variants.length ? `${p.variants.length} variáns` : '',
+          p.addons.length ? `${p.addons.length} extra` : ''
+        ].filter(Boolean).join(' · ')}</div>`
+      : '';
+    const qtyControlHtml = hasVariants
+      ? `<span class="qty-control">
+          <button type="button" class="qty-btn" disabled title="Variánsonként a termék szerkesztésében állítható">−</button>
+          <button type="button" class="qty-btn" disabled title="Variánsonként a termék szerkesztésében állítható">+</button>
+        </span>`
+      : `<span class="qty-control">
+          <button type="button" class="qty-btn" data-action="minus" aria-label="Készlet csökkentése">−</button>
+          <button type="button" class="qty-btn" data-action="plus" aria-label="Készlet növelése">+</button>
+        </span>`;
+    return `
+      <td><span class="thumb">${thumbHtml}</span></td>
+      <td><div class="prod-name">${p.name}${galleryBadge}</div>${stockSubHtml(p.deduction, p.linkedName, p.linkedQty, p.weight)}${typeBadgeHtml(p.type)}${variantExtraSubHtml}</td>
+      <td class="num mono stock-price">${priceCellHtml(p.price)}</td>
+      <td class="num mono stock-count">${p.stock}</td>
+      <td class="num mono">${p.reserved}</td>
+      <td class="num mono stock-available">${Math.max(0, p.stock - p.reserved)}</td>
+      <td>${qtyControlHtml}</td>
+      <td>${rowActionsHtml(p.archived)}</td>
+    `;
+  }
+  function applyProductDataset(row, p){
+    row.dataset.id = p.id;
+    row.dataset.type = p.type;
+    row.dataset.deduction = p.deduction;
+    row.dataset.linkedName = p.linkedName || '';
+    row.dataset.linkedQty = p.linkedQty || '';
+    row.dataset.linkedWeight = p.linkedWeight || '';
+    row.dataset.price = p.price || '';
+    row.dataset.weight = p.weight || '';
+    row.dataset.gallery = JSON.stringify(p.gallery || []);
+    row.dataset.variants = JSON.stringify(p.variants || []);
+    row.dataset.addons = JSON.stringify(p.addons || []);
+    row.dataset.archived = p.archived ? 'true' : 'false';
+    row.classList.toggle('row-archived', !!p.archived);
+  }
+  function renderProductRow(p){
+    const row = document.createElement('tr');
+    applyProductDataset(row, p);
+    row.innerHTML = buildProductRowInnerHtml(p);
+    return row;
+  }
+  function loadProducts(){
+    fetch('/api/products.php')
+      .then(res => res.json())
+      .then(products => {
+        inventoryTbody.innerHTML = '';
+        products.forEach(p => inventoryTbody.appendChild(renderProductRow(p)));
+        applyArchivedFilter();
+      })
+      .catch(() => pushNotification('Nem sikerült betölteni a termékeket a szerverről.', 'danger'));
+  }
+  loadProducts();
+
   function updateProductTypeUI(){
     const isComponent = productTypeSelect.value === 'component';
     productPriceInput.required = !isComponent;
@@ -453,11 +528,6 @@
     const linkedName = productLinkedSelect.value;
     const linkedQty = linkedName ? (parseInt(productLinkedQtyInput.value, 10) || 1) : '';
     const linkedWeight = linkedName ? productLinkedWeightInput.value.trim() : '';
-    const thumbHtml = productImages.length ? `<img src="${productImages[0]}" alt="">` : boxIconSvg;
-    const galleryBadge = productImages.length > 1
-      ? `<span class="gallery-badge">+${productImages.length - 1} kép</span>`
-      : '';
-    const galleryJson = JSON.stringify(productImages);
 
     const cleanVariants = productVariants
       .filter(v => v.name && v.name.trim())
@@ -469,73 +539,41 @@
     const stock = hasVariants
       ? cleanVariants.reduce((sum, v) => sum + v.stock, 0)
       : (parseInt(productStockInput.value, 10) || 0);
-    const variantsJson = JSON.stringify(cleanVariants);
-    const addonsJson = JSON.stringify(cleanAddons);
-    const variantExtraSubHtml = (cleanVariants.length || cleanAddons.length)
-      ? `<div class="variant-extra-sub">${[
-          cleanVariants.length ? `${cleanVariants.length} variáns` : '',
-          cleanAddons.length ? `${cleanAddons.length} extra` : ''
-        ].filter(Boolean).join(' · ')}</div>`
-      : '';
-    const qtyControlHtml = hasVariants
-      ? `<span class="qty-control">
-          <button type="button" class="qty-btn" disabled title="Variánsonként a termék szerkesztésében állítható">−</button>
-          <button type="button" class="qty-btn" disabled title="Variánsonként a termék szerkesztésében állítható">+</button>
-        </span>`
-      : `<span class="qty-control">
-          <button type="button" class="qty-btn" data-action="minus" aria-label="Készlet csökkentése">−</button>
-          <button type="button" class="qty-btn" data-action="plus" aria-label="Készlet növelése">+</button>
-        </span>`;
 
-    if (editingProductRow){
-      const reserved = parseInt(editingProductRow.children[4].textContent, 10) || 0;
-      editingProductRow.dataset.type = type;
-      editingProductRow.dataset.deduction = deduction;
-      editingProductRow.dataset.linkedName = linkedName;
-      editingProductRow.dataset.linkedQty = linkedQty;
-      editingProductRow.dataset.linkedWeight = linkedWeight;
-      editingProductRow.dataset.price = price;
-      editingProductRow.dataset.weight = weight;
-      editingProductRow.dataset.gallery = galleryJson;
-      editingProductRow.dataset.variants = variantsJson;
-      editingProductRow.dataset.addons = addonsJson;
-      editingProductRow.innerHTML = `
-        <td><span class="thumb">${thumbHtml}</span></td>
-        <td><div class="prod-name">${name}${galleryBadge}</div>${stockSubHtml(deduction, linkedName, linkedQty, weight)}${typeBadgeHtml(type)}${variantExtraSubHtml}</td>
-        <td class="num mono stock-price">${priceCellHtml(price)}</td>
-        <td class="num mono stock-count">${stock}</td>
-        <td class="num mono">${reserved}</td>
-        <td class="num mono stock-available">${Math.max(0, stock - reserved)}</td>
-        <td>${qtyControlHtml}</td>
-        <td>${rowActionsHtml(editingProductRow.dataset.archived === 'true')}</td>
-      `;
-    } else {
-      const row = document.createElement('tr');
-      row.dataset.type = type;
-      row.dataset.deduction = deduction;
-      row.dataset.linkedName = linkedName;
-      row.dataset.linkedQty = linkedQty;
-      row.dataset.linkedWeight = linkedWeight;
-      row.dataset.price = price;
-      row.dataset.weight = weight;
-      row.dataset.gallery = galleryJson;
-      row.dataset.variants = variantsJson;
-      row.dataset.addons = addonsJson;
-      row.innerHTML = `
-        <td><span class="thumb">${thumbHtml}</span></td>
-        <td><div class="prod-name">${name}${galleryBadge}</div>${stockSubHtml(deduction, linkedName, linkedQty, weight)}${typeBadgeHtml(type)}${variantExtraSubHtml}</td>
-        <td class="num mono stock-price">${priceCellHtml(price)}</td>
-        <td class="num mono stock-count">${stock}</td>
-        <td class="num mono">0</td>
-        <td class="num mono stock-available">${stock}</td>
-        <td>${qtyControlHtml}</td>
-        <td>${rowActionsHtml(false)}</td>
-      `;
-      inventoryTbody.appendChild(row);
-    }
+    const payload = {
+      type, name, price,
+      weight: weight ? parseInt(weight, 10) : null,
+      stock, deduction,
+      linkedName: linkedName || null,
+      linkedQty: linkedName ? linkedQty : null,
+      linkedWeight: linkedName ? (linkedWeight ? parseInt(linkedWeight, 10) : null) : null,
+      gallery: productImages,
+      variants: cleanVariants,
+      addons: cleanAddons
+    };
 
-    pushNotification(`Termék mentve: <strong>${name}</strong> (${stock} db készleten)`, 'info');
-    closeProductModal();
+    const request = editingProductRow
+      ? fetch(`/api/products.php?id=${editingProductRow.dataset.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+      : fetch('/api/products.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+    request.then(res => res.json()).then(saved => {
+      if (editingProductRow) {
+        applyProductDataset(editingProductRow, saved);
+        editingProductRow.innerHTML = buildProductRowInnerHtml(saved);
+      } else {
+        inventoryTbody.appendChild(renderProductRow(saved));
+      }
+      pushNotification(`Termék mentve: <strong>${saved.name}</strong> (${saved.stock} db készleten)`, 'info');
+      closeProductModal();
+    }).catch(() => pushNotification('Nem sikerült menteni a terméket a szerverre.', 'danger'));
   });
 
   // ---- kupon modal (új + szerkesztés) ----
