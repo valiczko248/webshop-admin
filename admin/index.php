@@ -1106,18 +1106,7 @@ $adminEmail = $stmt->fetchColumn() ?: '';
           <div style="margin-top:10px">
             <button type="button" class="btn btn--ghost btn--small" id="test-site-connection-btn">Kapcsolat tesztelése</button>
           </div>
-          <p class="empty-note" style="padding:8px 0 0">Ez majd a valódi backendnél ténylegesen lekérdezi, hogy a megadott domainről érkezett-e már sikeres, érvényes kulccsal hitelesített API-hívás — itt egy demó-szimuláció, hogy lásd, hogyan fog kinézni és viselkedni.</p>
-        </div>
-
-        <div class="field" id="ai-setup-card" style="max-width:620px; margin-top:22px">
-          <div class="view-head" style="margin-bottom:8px">
-            <label style="margin:0; font-size:12px; font-weight:600; color:var(--text-soft)">Automatikus alapadat-felismerés</label>
-            <span class="pill pill--warn" id="ai-setup-status-pill">Előbb teszteld a kapcsolatot</span>
-          </div>
-          <div class="order-detail-box" id="ai-setup-detail">Ha fent a kapcsolat sikeresen csatlakozott, itt elindíthatod az automatikus felismerést: végignézi a weboldaladat, és megpróbálja kitölteni a terméklistát, a jogi dokumentumokat és a többi alapadatot kiinduló pontnak. Amit talál, utána bármikor módosíthatod, ez csak egy gyors rajtot ad.</div>
-          <div style="margin-top:10px">
-            <button type="button" class="btn" id="open-ai-setup-btn" disabled>Automatikus beállítás indítása →</button>
-          </div>
+          <p class="empty-note" style="padding:8px 0 0">Ténylegesen lekérdezi, hogy érkezett-e már sikeres, érvényes kulccsal hitelesített API-hívás a weboldal-webhookra.</p>
         </div>
 
         <div class="field" id="system-test-card" style="max-width:620px; margin-top:22px">
@@ -1475,51 +1464,6 @@ $adminEmail = $stmt->fetchColumn() ?: '';
           <div class="modal-actions">
             <button type="button" class="btn btn--ghost" id="stripe-cli-back-btn">Vissza</button>
             <button type="button" class="btn" id="stripe-cli-next-btn">Tovább</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="modal-overlay" id="ai-setup-modal">
-        <div class="modal-card modal-card--wide">
-          <div class="modal-head">
-            <h2 class="modal-title">Automatikus alapadat-felismerés</h2>
-            <button type="button" class="modal-close" id="ai-setup-modal-close" aria-label="Bezárás">&times;</button>
-          </div>
-          <div class="modal-body">
-            <p class="empty-note" style="padding:0 0 14px">Ez a bemutató szimulálja, hogyan fog működni élesben: a valódi rendszerben az AI ténylegesen beolvassa a csatlakoztatott weboldaladat, és ez alapján tölti ki a lenti adatokat kiindulásképp — amit utána bármikor módosíthatsz.</p>
-            <div id="ai-setup-steps">
-              <div class="ai-step" data-step-id="connect">
-                <span class="ai-step-icon pending">…</span>
-                <div><div class="ai-step-title">Kapcsolódás a weboldalhoz</div><div class="ai-step-detail"></div></div>
-              </div>
-              <div class="ai-step" data-step-id="products">
-                <span class="ai-step-icon pending">…</span>
-                <div><div class="ai-step-title">Termékek felismerése (név, ár, leírás)</div><div class="ai-step-detail"></div></div>
-              </div>
-              <div class="ai-step" data-step-id="legal">
-                <span class="ai-step-icon pending">…</span>
-                <div><div class="ai-step-title">Jogi dokumentumok azonosítása (Impresszum, ÁSZF, Adatkezelési tájékoztató, Cookie szabályzat, Elállási nyilatkozat)</div><div class="ai-step-detail"></div></div>
-              </div>
-              <div class="ai-step" data-step-id="payment">
-                <span class="ai-step-icon pending">…</span>
-                <div><div class="ai-step-title">Fizetési beállítások ellenőrzése (Stripe)</div><div class="ai-step-detail"></div></div>
-              </div>
-              <div class="ai-step" data-step-id="weight">
-                <span class="ai-step-icon pending">…</span>
-                <div><div class="ai-step-title">Termék súlyok felismerése</div><div class="ai-step-detail"></div></div>
-              </div>
-              <div class="ai-step" data-step-id="kvikk">
-                <span class="ai-step-icon pending">…</span>
-                <div><div class="ai-step-title">Kvikk szállítási kapcsolat ellenőrzése</div><div class="ai-step-detail"></div></div>
-              </div>
-            </div>
-            <div id="ai-setup-summary" style="display:none">
-              <p class="modal-section-label" style="margin-top:4px">Összefoglaló</p>
-              <div id="ai-setup-summary-list"></div>
-            </div>
-          </div>
-          <div class="modal-actions">
-            <button type="button" class="btn" id="ai-setup-close-btn" style="display:none">Bezárás, megnézem az eredményt</button>
           </div>
         </div>
       </div>

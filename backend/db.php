@@ -83,6 +83,11 @@ function run_migrations(PDO $pdo): void {
         'kvikk_auto_mode' => '0',
         'kvikk_default_courier' => '',
         'storefront_url' => '',
+        'stripe_test_secret_key' => '',
+        'stripe_test_publishable_key' => '',
+        'stripe_live_secret_key' => '',
+        'stripe_live_publishable_key' => '',
+        'last_webshop_call_at' => '',
     ];
     $stmt = $pdo->prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
     foreach ($defaults as $key => $value) {

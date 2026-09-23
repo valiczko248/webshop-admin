@@ -1106,7 +1106,20 @@
     .then(settings => {
       if (settings.stripe_webhook_secret) {
         stripeKeys[currentStripeMode].webhook = settings.stripe_webhook_secret;
-        stripeWebhookInput.value = settings.stripe_webhook_secret;
+      }
+      if (settings.stripe_test_secret_key) stripeKeys.test.secret = settings.stripe_test_secret_key;
+      if (settings.stripe_test_publishable_key) stripeKeys.test.pub = settings.stripe_test_publishable_key;
+      if (settings.stripe_live_secret_key) stripeKeys.live.secret = settings.stripe_live_secret_key;
+      if (settings.stripe_live_publishable_key) stripeKeys.live.pub = settings.stripe_live_publishable_key;
+      // Nem setStripeMode()-ot hívjuk (az elsőként ELMENTENÉ a — még üres — mezőket, felülírva
+      // a most betöltött kulcsokat), hanem csak a látható mezőket frissítjük a friss adattal.
+      const stored = stripeKeys[currentStripeMode];
+      stripePubInput.value = stored.pub;
+      stripeSecretInput.value = stored.secret;
+      stripeWebhookInput.value = stored.webhook;
+      if (stored.secret) {
+        stripeConnectionPill.className = 'pill pill--success';
+        stripeConnectionPill.textContent = currentStripeMode === 'test' ? 'Csatlakoztatva (teszt)' : 'Csatlakoztatva (éles)';
       }
       if (settings.storefront_url) document.getElementById('storefront-url').value = settings.storefront_url;
     })
@@ -1122,22 +1135,17 @@
     .then(data => { if (data.siteApiKey) siteKeyInput.value = data.siteApiKey; })
     .catch(() => pushNotification('Nem sikerült betölteni a weboldal API kulcsot a szerverről.', 'danger'));
 
-  function setAiSetupAvailable(available){
-    document.getElementById('open-ai-setup-btn').disabled = !available;
-    document.getElementById('ai-setup-status-pill').className = available ? 'pill pill--success' : 'pill pill--warn';
-    document.getElementById('ai-setup-status-pill').textContent = available ? 'Kapcsolat kész' : 'Előbb teszteld a kapcsolatot';
-
-    document.getElementById('open-system-test-btn').disabled = !available;
-    document.getElementById('open-system-test-live-btn').disabled = !available;
-    document.getElementById('system-test-status-pill').className = available ? 'pill pill--success' : 'pill pill--warn';
-    document.getElementById('system-test-status-pill').textContent = available ? 'Kapcsolat kész' : 'Előbb teszteld a kapcsolatot';
-  }
+  // A Rendszerteszt gombok a Kvikk/Stripe-kapcsolatot saját maguk, valósan ellenőrzik — nem
+  // függnek attól, érkezett-e már valaha hívás egy webshoptól, ezért mindig elérhetők.
+  document.getElementById('open-system-test-btn').disabled = false;
+  document.getElementById('open-system-test-live-btn').disabled = false;
+  document.getElementById('system-test-status-pill').className = 'pill pill--neutral';
+  document.getElementById('system-test-status-pill').textContent = 'Kattints egy indító gombra';
 
   function resetSiteConnectionStatus(reason){
     siteConnectionPill.className = 'pill pill--neutral';
     siteConnectionPill.textContent = 'Még nem tesztelve';
     siteConnectionDetail.textContent = reason || 'Még nem futott le kapcsolat-ellenőrzés. Kattints a "Kapcsolat tesztelése" gombra, miután megadtad a domain nevet fent és beillesztetted az API kulcsot a weboldal kódjába.';
-    setAiSetupAvailable(false);
   }
 
   document.getElementById('regenerate-site-key-btn').addEventListener('click', () => {
@@ -1153,23 +1161,35 @@
       .catch(() => pushNotification('Nem sikerült új kulcsot generálni a szerveren.', 'danger'));
   });
 
+  // Valódi ellenőrzés: tényleg érkezett-e már sikeresen hitelesített hívás a webshoptól
+  // (require_site_api_key() minden sikeres híváskor frissíti a last_webshop_call_at beállítást).
+  // A domain-mező csak saját referenciának/megjelenítésnek szolgál, nem ezt ellenőrizzük ténylegesen.
   document.getElementById('test-site-connection-btn').addEventListener('click', () => {
     const domain = document.getElementById('settings-domain').value.trim();
-    if (!domain) {
-      siteConnectionPill.className = 'pill pill--danger';
-      siteConnectionPill.textContent = 'Hiányzó domain';
-      siteConnectionDetail.textContent = 'Add meg fent a domain nevét, mielőtt tesztelnéd a kapcsolatot.';
-      setAiSetupAvailable(false);
-      pushNotification('Kapcsolat-teszt sikertelen: nincs megadva domain név', 'warn');
-      return;
-    }
-    const now = new Date();
-    const stamp = `${now.toISOString().slice(0,10).replaceAll('-', '.')}. ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-    siteConnectionPill.className = 'pill pill--success';
-    siteConnectionPill.textContent = 'Csatlakozva';
-    siteConnectionDetail.innerHTML = `<strong>${domain}</strong> — sikeres API-hívás érkezett erről a domainről, érvényes kulccsal. Utolsó ellenőrzés: ${stamp}.`;
-    setAiSetupAvailable(true);
-    pushNotification(`Kapcsolat rendben: <strong>${domain}</strong> sikeresen csatlakozik az API-kulccsal`, 'success');
+    siteConnectionPill.className = 'pill pill--neutral';
+    siteConnectionPill.textContent = 'Ellenőrzés…';
+    fetch('/api/system-test.php')
+      .then(res => res.json())
+      .then(data => {
+        if (!data.lastWebshopCallAt) {
+          siteConnectionPill.className = 'pill pill--warn';
+          siteConnectionPill.textContent = 'Még nem érkezett hívás';
+          siteConnectionDetail.innerHTML = `Még sosem érkezett sikeresen hitelesített API-hívás ide a weboldal-webhookra${domain ? ` (<strong>${escapeHtml(domain)}</strong>)` : ''}. Ez rendben van, ha a webshop még nincs bekötve — küldj egy teszt-rendelést az <span class="mono">/api/webhooks/webshop.php</span> végpontnak az API-kulccsal, utána ez a jelzés valósra vált.`;
+          pushNotification('Még nem érkezett valódi hívás a weboldal-webhookra.', 'warn');
+          return;
+        }
+        const stamp = data.lastWebshopCallAt.replace('T', ' ').slice(0, 16).replaceAll('-', '.');
+        siteConnectionPill.className = 'pill pill--success';
+        siteConnectionPill.textContent = 'Csatlakozva';
+        siteConnectionDetail.innerHTML = `${domain ? `<strong>${escapeHtml(domain)}</strong> — ` : ''}legutóbb <strong>${stamp}</strong>-kor érkezett sikeresen hitelesített API-hívás a weboldal-webhookra.`;
+        pushNotification('Kapcsolat rendben — valódi, hitelesített hívás érkezett a weboldaltól.', 'success');
+      })
+      .catch(() => {
+        siteConnectionPill.className = 'pill pill--danger';
+        siteConnectionPill.textContent = 'Hiba';
+        siteConnectionDetail.textContent = 'Nem sikerült lekérdezni a kapcsolat állapotát a szerverről.';
+        pushNotification('Kapcsolat-ellenőrzés sikertelen.', 'danger');
+      });
   });
 
   const copySiteKeyBtn = document.getElementById('copy-site-key-btn');
@@ -1212,99 +1232,6 @@
       flashSaveStatus(document.getElementById('field-mapping-save-status'));
       pushNotification(`Adat-mezőleképezés mentve (${filled}/${inputs.length} változóhoz van megadva webshop-mezőnév) — a webhook mostantól ezt használja`, 'success');
     }).catch(() => pushNotification('Nem sikerült menteni a mezőleképezést a szerverre.', 'danger'));
-  });
-
-  // ---- AI automatikus alapadat-felismerés (szimuláció) ----
-  function sleep(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
-
-  function setAiStepStatus(stepId, status, detail){
-    const step = document.querySelector(`.ai-step[data-step-id="${stepId}"]`);
-    const icon = step.querySelector('.ai-step-icon');
-    icon.className = 'ai-step-icon ' + status;
-    icon.textContent = status === 'done' ? '✓' : status === 'failed' ? '!' : '…';
-    step.querySelector('.ai-step-detail').textContent = detail || '';
-  }
-
-  function addAiImportedProduct(name, price){
-    const row = document.createElement('tr');
-    row.dataset.type = 'regular';
-    row.dataset.deduction = 1;
-    row.dataset.linkedName = '';
-    row.dataset.linkedQty = '';
-    row.dataset.price = price;
-    row.dataset.weight = '';
-    row.innerHTML = `
-      <td><span class="thumb">${boxIconSvg}</span></td>
-      <td><div class="prod-name">${name}</div><div class="stock-sub">AI-felismerve a weboldalról — ellenőrizd az adatokat, és add meg a súlyt</div></td>
-      <td class="num mono stock-price">${priceCellHtml(price)}</td>
-      <td class="num mono stock-count">0</td>
-      <td class="num mono">0</td>
-      <td class="num mono stock-available">0</td>
-      <td>
-        <span class="qty-control">
-          <button type="button" class="qty-btn" data-action="minus" aria-label="Készlet csökkentése">−</button>
-          <button type="button" class="qty-btn" data-action="plus" aria-label="Készlet növelése">+</button>
-        </span>
-      </td>
-      <td>${rowActionsHtml(false)}</td>
-    `;
-    inventoryTbody.appendChild(row);
-  }
-
-  async function runAiSetup(){
-    document.querySelectorAll('#ai-setup-steps .ai-step-icon').forEach(icon => { icon.className = 'ai-step-icon pending'; icon.textContent = '…'; });
-    document.querySelectorAll('#ai-setup-steps .ai-step-detail').forEach(d => { d.textContent = ''; });
-    document.getElementById('ai-setup-summary').style.display = 'none';
-    document.getElementById('ai-setup-close-btn').style.display = 'none';
-    document.getElementById('ai-setup-modal').classList.add('active');
-
-    const domain = document.getElementById('settings-domain').value.trim() || 'a megadott domain';
-
-    await sleep(700);
-    setAiStepStatus('connect', 'done', `Sikeresen elérve: ${domain}`);
-
-    await sleep(900);
-    addAiImportedProduct('Nyisd Ki Amikor — Prémium csomag', 15900);
-    addAiImportedProduct('Nyisd Ki Amikor — Mini csomag', 3900);
-    setAiStepStatus('products', 'done', '2 új termék importálva (név, ár) — ellenőrizd és egészítsd ki őket a Termékek oldalon.');
-
-    await sleep(900);
-    const legalCount = document.querySelectorAll('#legal-docs-tbody tr').length;
-    setAiStepStatus('legal', 'done', `${legalCount}/${legalCount} dokumentum megtalálva és megerősítve a weboldalon.`);
-
-    await sleep(700);
-    setAiStepStatus('payment', 'done', `Stripe ${currentStripeMode === 'test' ? 'teszt' : 'éles'} kapcsolat működik.`);
-
-    await sleep(700);
-    setAiStepStatus('weight', 'failed', 'Fizikai súly nem állapítható meg egy weboldal szövegéből — minden termékhez kézzel kell megadni a Termékeknél (a Kvikk-küldéshez kötelező).');
-
-    await sleep(700);
-    setAiStepStatus('kvikk', 'failed', 'A Kvikk API-kulcs biztonsági okból nem automatizálható — ezt kézzel kell megadnod a szerveroldali .env fájlban.');
-
-    await sleep(400);
-    const summaryItems = [
-      { ok: true, text: '2 termék importálva (név, ár) a weboldalról — nézd át a Termékeknél.' },
-      { ok: true, text: `${legalCount} jogi dokumentum azonosítva és megerősítve.` },
-      { ok: true, text: 'Stripe-kapcsolat ellenőrizve, működik.' },
-      { ok: false, text: 'Termék súlyok — minden termékhez kézzel kell megadni (Termékek → szerkesztés → Súly mező).' },
-      { ok: false, text: 'Kvikk API-kulcs — kézzel kell beállítani a szerveren, ez sosem lesz automatikus.' }
-    ];
-    document.getElementById('ai-setup-summary-list').innerHTML = summaryItems.map(item => `
-      <div class="ai-summary-row">
-        <span class="ai-step-icon ${item.ok ? 'done' : 'failed'}">${item.ok ? '✓' : '!'}</span>
-        <span>${item.text}</span>
-      </div>
-    `).join('');
-    document.getElementById('ai-setup-summary').style.display = 'block';
-    document.getElementById('ai-setup-close-btn').style.display = 'inline-flex';
-    pushNotification('Automatikus alapadat-felismerés kész — nézd át az eredményt.', 'success');
-  }
-
-  document.getElementById('open-ai-setup-btn').addEventListener('click', runAiSetup);
-  document.getElementById('ai-setup-modal-close').addEventListener('click', () => document.getElementById('ai-setup-modal').classList.remove('active'));
-  document.getElementById('ai-setup-close-btn').addEventListener('click', () => document.getElementById('ai-setup-modal').classList.remove('active'));
-  document.getElementById('ai-setup-modal').addEventListener('click', (e) => {
-    if (e.target.id === 'ai-setup-modal') document.getElementById('ai-setup-modal').classList.remove('active');
   });
 
   // ---- rendszerteszt: teljes rendelési folyamat ellenőrzése (teszt / éles 300 Ft) ----
@@ -1350,66 +1277,161 @@
     runSystemTest('live');
   });
 
-  async function runSystemTest(mode){
-    await sleep(600);
-    setSystemTestStepStatus('connect', 'done', 'Stripe és Kvikk API elérhető, a kulcsok érvényesek.');
-
-    await sleep(900);
-    setSystemTestStepStatus('payment', 'done', mode === 'live'
-      ? 'Valódi bankkártyás terhelés: 300 Ft — sikeres.'
-      : 'Teszt-kártyával (4242 4242 4242 4242) szimulált fizetés — sikeres.');
-
-    await sleep(800);
-    setSystemTestStepStatus('webhook', 'done', 'A backend fogadta a Stripe payment_intent.succeeded eseményét.');
-
-    await sleep(800);
-    setSystemTestStepStatus('order', 'done', 'A rendelés létrejött és megjelent a Rendelések listájában.');
-
-    await sleep(900);
-    const missingWeightRows = Array.from(inventoryTbody.querySelectorAll('tr'))
-      .filter(row => row.dataset.type === 'regular' && !row.dataset.weight);
-    const kvikkOk = missingWeightRows.length === 0;
-    if (kvikkOk) {
-      setSystemTestStepStatus('kvikk', 'done', 'A Kvikk API elfogadta a csomagot, a címke elkészült.');
-    } else {
-      const names = missingWeightRows.map(row => getProdName(row)).join(', ');
-      setSystemTestStepStatus('kvikk', 'error', `Elakadt itt: a Kvikk API "missing_weight" hibát adott — ${missingWeightRows.length} terméknél nincs megadva a súly (${names}). Töltsd ki a Termékeknél, majd futtasd újra a tesztet.`);
-    }
-
-    await sleep(700);
-    if (kvikkOk) {
-      setSystemTestStepStatus('email', 'done', 'A visszaigazoló email sikeresen kiküldve (szerver PHP mail()).');
-    } else {
-      setSystemTestStepStatus('email', 'skipped', 'Kihagyva, mert az előző lépésnél (Kvikk) elakadt a folyamat.');
-    }
-
-    await sleep(500);
-    if (mode === 'live') {
-      setSystemTestStepStatus('cleanup', 'failed', 'Ez valódi terhelés volt — ha csak tesztelés volt a cél, indíts hozzá visszatérítést (Fizetés oldal → a tranzakció Stripe-linkje → Visszatérítés), különben a 300 Ft nálad marad bevételként.');
-    } else {
-      setSystemTestStepStatus('cleanup', 'done', 'Nincs teendő — ez csak teszt-tranzakció volt, nem kell visszatéríteni.');
-    }
-
-    await sleep(300);
-    const summaryItems = [
-      { status: 'done', text: 'Stripe fizetés + webhook + rendelés létrehozása rendben.' },
-      kvikkOk
-        ? { status: 'done', text: 'Kvikk csomag-létrehozás és email-küldés rendben.' }
-        : { status: 'error', text: `Elakadt a Kvikk lépésnél: ${missingWeightRows.length} terméknél hiányzik a súly — emiatt az email-küldés is kimaradt.` },
-      mode === 'live'
-        ? { status: 'failed', text: 'Éles teszt volt — ha nem akartad megtartani a 300 Ft-ot, térítsd vissza a Fizetés oldalról.' }
-        : { status: 'done', text: 'Teszt mód volt, valódi pénz nem mozgott.' }
-    ];
-    document.getElementById('system-test-summary-list').innerHTML = summaryItems.map(item => `
-      <div class="ai-summary-row">
-        <span class="ai-step-icon ${item.status}">${item.status === 'done' ? '✓' : item.status === 'error' ? '✕' : '!'}</span>
-        <span>${item.text}</span>
-      </div>
-    `).join('');
-    document.getElementById('system-test-summary').style.display = 'block';
-    document.getElementById('system-test-close-btn').style.display = 'inline-flex';
-    pushNotification(kvikkOk ? 'Rendszerteszt kész — a teljes lánc rendben végigfutott.' : 'Rendszerteszt elakadt a Kvikk lépésnél — hiányzó súly miatt.', kvikkOk ? 'success' : 'warn');
+  function setSystemTestStepInProgress(stepId, detail){
+    const step = document.querySelector(`#system-test-steps .ai-step[data-step-id="${stepId}"]`);
+    const icon = step.querySelector('.ai-step-icon');
+    icon.className = 'ai-step-icon pending';
+    icon.textContent = '…';
+    step.querySelector('.ai-step-detail').textContent = detail || '';
   }
+
+  // Valódi Kvikk + Stripe kapcsolat-ellenőrzés (nem szimuláció). "Teszt mód"-ban itt meg is áll —
+  // a teljes rendelési láncot csak egy valódi teszt-rendeléssel lehet végigfuttatni, mert a
+  // checkout maga a webshopon történik, nem az adminban (lásd DEPLOYMENT_CHECKLIST.md 4. fázis).
+  // "Éles mód"-ban sikeres kapcsolat után egy valódi, 300 Ft-os Stripe Checkout Session-t hoz
+  // létre, és a teljes lapot átirányítja oda — a kártyaadatot a Stripe saját oldala kéri be.
+  async function runSystemTest(mode){
+    setSystemTestStepInProgress('connect', 'Kvikk és Stripe API ellenőrzése…');
+    let kvikkOk = false, stripeOk = false;
+    try {
+      const res = await fetch('/api/system-test.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'run-checks', mode })
+      });
+      const data = await res.json();
+      kvikkOk = !!(data.kvikk && data.kvikk.ok);
+      stripeOk = !!(data.stripe && data.stripe.ok);
+      if (kvikkOk && stripeOk) {
+        setSystemTestStepStatus('connect', 'done', `Kvikk és Stripe (${mode === 'live' ? 'éles' : 'teszt'}) API elérhető, a kulcsok érvényesek.`);
+      } else {
+        const problems = [];
+        if (!kvikkOk) problems.push(`Kvikk: ${(data.kvikk && data.kvikk.error) || 'ismeretlen hiba'}`);
+        if (!stripeOk) problems.push(`Stripe (${mode}): ${(data.stripe && data.stripe.error) || 'ismeretlen hiba'}`);
+        setSystemTestStepStatus('connect', 'error', problems.join(' · '));
+      }
+    } catch (err) {
+      setSystemTestStepStatus('connect', 'error', 'Nem sikerült elérni a szervert.');
+      document.getElementById('system-test-close-btn').style.display = 'inline-flex';
+      return;
+    }
+
+    if (mode === 'test') {
+      const note = 'Ez a lépés valódi kártyás fizetést igényelne, ami az adminban nincs (a checkout a webshopon történik) — a teljes láncot valódi teszt-rendeléssel tudod végigfuttatni (DEPLOYMENT_CHECKLIST.md, 4. fázis).';
+      ['payment', 'webhook', 'order', 'kvikk', 'email', 'cleanup'].forEach(id => setSystemTestStepStatus(id, 'skipped', note));
+      document.getElementById('system-test-summary-list').innerHTML = `
+        <div class="ai-summary-row"><span class="ai-step-icon ${kvikkOk && stripeOk ? 'done' : 'error'}">${kvikkOk && stripeOk ? '✓' : '✕'}</span><span>Kvikk/Stripe (teszt) kapcsolat: ${kvikkOk && stripeOk ? 'rendben' : 'hiba, lásd fent'}.</span></div>
+        <div class="ai-summary-row"><span class="ai-step-icon skipped">—</span><span>A teljes rendelési lánchoz valódi teszt-rendelés szükséges — ez a gomb csak a kapcsolatot ellenőrzi.</span></div>
+      `;
+      document.getElementById('system-test-summary').style.display = 'block';
+      document.getElementById('system-test-close-btn').style.display = 'inline-flex';
+      pushNotification(kvikkOk && stripeOk ? 'Kapcsolat-teszt rendben.' : 'Kapcsolat-teszt hibát talált — lásd a részleteket.', kvikkOk && stripeOk ? 'success' : 'warn');
+      return;
+    }
+
+    // live: sikeres kapcsolat esetén valódi fizetés indítása
+    if (!stripeOk) {
+      pushNotification('Nem sikerült elindítani az élő tesztet: az éles Stripe secret key nincs beállítva vagy érvénytelen (Fizetés oldal).', 'danger');
+      document.getElementById('system-test-close-btn').style.display = 'inline-flex';
+      return;
+    }
+    setSystemTestStepInProgress('payment', 'Stripe Checkout Session létrehozása…');
+    try {
+      const payRes = await fetch('/api/system-test.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start-live-payment' })
+      });
+      const payData = await payRes.json();
+      if (!payRes.ok || !payData.url) {
+        setSystemTestStepStatus('payment', 'error', payData.error || 'Ismeretlen hiba a fizetés indításakor.');
+        document.getElementById('system-test-close-btn').style.display = 'inline-flex';
+        return;
+      }
+      setSystemTestStepInProgress('payment', 'Átirányítás a Stripe fizetési oldalára — a kártyaadatot ott, biztonságosan kéri be…');
+      window.location.href = payData.url;
+    } catch (err) {
+      setSystemTestStepStatus('payment', 'error', 'Nem sikerült elérni a szervert.');
+      document.getElementById('system-test-close-btn').style.display = 'inline-flex';
+    }
+  }
+
+  // Visszatérés a Stripe Checkoutból: a success_url a teljes lapot ide irányítja vissza, a
+  // Checkout Session azonosítójával. Ez nem a modal-állapot folytatása (teljes oldalbetöltés
+  // történt a Stripe oldalán), hanem egy önálló, az URL alapján induló ellenőrzés.
+  (function handleSystemTestReturn(){
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('system_test_session_id');
+    const result = params.get('system_test');
+    if (!sessionId && result !== 'cancelled') return;
+    history.replaceState(null, '', window.location.pathname);
+
+    if (result === 'cancelled') {
+      pushNotification('Élő rendszerteszt megszakítva — nem történt terhelés.', 'info');
+      return;
+    }
+
+    document.getElementById('system-test-modal-title').textContent = 'Éles rendszerteszt — eredmény';
+    document.getElementById('system-test-modal-subtitle').textContent = 'Visszaérkeztél a Stripe fizetési oldaláról.';
+    document.querySelectorAll('#system-test-steps .ai-step-icon').forEach(icon => { icon.className = 'ai-step-icon pending'; icon.textContent = '…'; });
+    document.querySelectorAll('#system-test-steps .ai-step-detail').forEach(d => { d.textContent = ''; });
+    document.getElementById('system-test-live-gate').style.display = 'none';
+    document.getElementById('system-test-run').style.display = 'block';
+    document.getElementById('system-test-summary').style.display = 'none';
+    document.getElementById('system-test-close-btn').style.display = 'none';
+    document.getElementById('system-test-modal').classList.add('active');
+
+    setSystemTestStepStatus('connect', 'done', 'A kapcsolat-ellenőrzés a fizetés indítása előtt már megtörtént.');
+    setSystemTestStepInProgress('payment', 'Fizetés állapotának lekérdezése…');
+
+    fetch('/api/system-test.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'check-session', sessionId })
+    }).then(res => res.json()).then(data => {
+      const paid = data.paymentStatus === 'paid';
+      setSystemTestStepStatus('payment', paid ? 'done' : 'error',
+        paid ? `Valódi, 300 Ft-os bankkártyás terhelés sikeres (Payment Intent: ${data.paymentIntentId}).` : `A fizetés státusza: ${data.paymentStatus || 'ismeretlen'} — nem sikeres terhelés.`);
+      ['webhook', 'order', 'kvikk', 'email'].forEach(id => setSystemTestStepStatus(id, 'skipped', 'Ez a teszt csak a Stripe-kapcsolatot ellenőrzi, nem hoz létre rendelést — ezen a lépésen nincs mit ellenőrizni.'));
+
+      if (paid) {
+        setSystemTestStepInProgress('cleanup', '');
+        const cleanupStep = document.querySelector('#system-test-steps .ai-step[data-step-id="cleanup"] .ai-step-detail');
+        cleanupStep.textContent = 'A 300 Ft valódi bevételként a Stripe fiókodban maradt, amíg vissza nem térítteted. ';
+        const refundBtn = document.createElement('button');
+        refundBtn.type = 'button';
+        refundBtn.className = 'btn btn--ghost btn--small';
+        refundBtn.textContent = 'Visszatérítés indítása most';
+        refundBtn.addEventListener('click', () => {
+          refundBtn.disabled = true;
+          refundBtn.textContent = 'Visszatérítés folyamatban…';
+          fetch('/api/system-test.php', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'refund-session', sessionId })
+          }).then(res => res.json()).then(refundData => {
+            if (refundData.ok) {
+              setSystemTestStepStatus('cleanup', 'done', `Visszatérítve — a 300 Ft hamarosan visszakerül a kártyára (Refund ID: ${refundData.refundId}).`);
+              pushNotification('Diagnosztikai terhelés visszatérítve.', 'success');
+            } else {
+              refundBtn.disabled = false;
+              refundBtn.textContent = 'Visszatérítés indítása most';
+              pushNotification(`Nem sikerült visszatéríteni: ${refundData.error}`, 'danger');
+            }
+          }).catch(() => {
+            refundBtn.disabled = false;
+            refundBtn.textContent = 'Visszatérítés indítása most';
+            pushNotification('Nem sikerült visszatéríteni (hálózati hiba).', 'danger');
+          });
+        });
+        cleanupStep.appendChild(refundBtn);
+        pushNotification('Élő rendszerteszt sikeres — 300 Ft valódi terhelés megtörtént.', 'success');
+      } else {
+        setSystemTestStepStatus('cleanup', 'skipped', 'Nincs teendő, mert nem történt sikeres terhelés.');
+        pushNotification('Élő rendszerteszt: a fizetés nem sikerült.', 'warn');
+      }
+      document.getElementById('system-test-close-btn').style.display = 'inline-flex';
+    }).catch(() => {
+      setSystemTestStepStatus('payment', 'error', 'Nem sikerült lekérdezni a fizetés állapotát a szerverről.');
+      document.getElementById('system-test-close-btn').style.display = 'inline-flex';
+    });
+  })();
 
   document.getElementById('open-system-test-btn').addEventListener('click', () => openSystemTestModal('test'));
   document.getElementById('open-system-test-live-btn').addEventListener('click', () => openSystemTestModal('live'));
@@ -2632,14 +2654,20 @@
     // A publishable/secret key még nincs a szerveren felhasználva (nincs kimenő Stripe API-hívás
     // ebben a rendszerben), csak a webhook-titkot mentjük ténylegesen — ez kell a bejövő
     // Stripe-webhook aláírás-ellenőrzéséhez (api/webhooks/stripe.php).
+    const modePrefix = currentStripeMode === 'test' ? 'stripe_test_' : 'stripe_live_';
     fetch('/api/settings.php', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stripe_webhook_secret: stripeWebhookInput.value, storefront_url: document.getElementById('storefront-url').value })
+      body: JSON.stringify({
+        stripe_webhook_secret: stripeWebhookInput.value,
+        storefront_url: document.getElementById('storefront-url').value,
+        [modePrefix + 'secret_key']: stripeSecretInput.value,
+        [modePrefix + 'publishable_key']: stripePubInput.value,
+      })
     }).then(() => {
       flashSaveStatus(document.getElementById('stripe-save-status'));
       pushNotification(`Stripe API-kulcsok mentve (${currentStripeMode === 'test' ? 'Teszt' : 'Éles'})`, 'success');
-    }).catch(() => pushNotification('Nem sikerült elmenteni a Stripe webhook-titkot a szerverre.', 'danger'));
+    }).catch(() => pushNotification('Nem sikerült elmenteni a Stripe kulcsokat a szerverre.', 'danger'));
   });
 
   document.getElementById('email-settings-save-btn').addEventListener('click', () => {

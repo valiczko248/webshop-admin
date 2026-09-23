@@ -318,6 +318,13 @@ function seed_settings(PDO $pdo): void {
         'kvikk_auto_mode' => '0',
         'kvikk_default_courier' => '',
         'storefront_url' => '',
+        // valódi Stripe API-hívásokhoz (kulcs-ellenőrzés, Rendszerteszt élő fizetése) — sosem kerül
+        // vissza a böngészőbe máshogy, csak a saját, jelszó-mezős beviteli mezőbe visszaolvasva
+        'stripe_test_secret_key' => '',
+        'stripe_test_publishable_key' => '',
+        'stripe_live_secret_key' => '',
+        'stripe_live_publishable_key' => '',
+        'last_webshop_call_at' => '',
     ];
     foreach ($settings as $key => $value) {
         $stmt->execute(['key' => $key, 'value' => $value]);

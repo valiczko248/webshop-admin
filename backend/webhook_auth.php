@@ -11,6 +11,13 @@ function require_site_api_key(): void {
     if (!$expected || !hash_equals((string) $expected, $header)) {
         json_response(['error' => 'Érvénytelen vagy hiányzó API-kulcs.'], 401);
     }
+    // A Beállítások oldal "Kapcsolat tesztelése" gombja ezt olvassa ki — így az valódi jelzést ad
+    // (mikor érkezett utoljára sikeresen hitelesített hívás a webshoptól), nem csak egy kitöltött
+    // mezőt ellenőriz.
+    db()->prepare("
+        INSERT INTO settings (key, value) VALUES ('last_webshop_call_at', datetime('now'))
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    ")->execute();
 }
 
 function get_setting(string $key): string {
